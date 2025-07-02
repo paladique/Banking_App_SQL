@@ -48,88 +48,8 @@ git clone https://github.com/arno756/Banking_App_SQL.git
 cd Banking_App_SQL
 ```
 
----
 
-### 🛠️ 2. Set Up Azure SQL Database (Database)
-
-#### a. Create a New Project
-
-- Go to your [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) and create a new project.
-
-#### b. Create the Database Schema
-
-- Navigate to the **Query Editor** in Azure SQL Database.
-- Click **+ New Query**.
-- Paste the contents of `schema.sql` (see below) and run the query.
-
-#### c. Get Your Connection String
-
-From **Connection strings** in Azure SQL Database, note:
-
-- Database URI
-
----
-
-### 📄 `schema.sql`
-
-```sql
--- Create the accounts table
-CREATE TABLE accounts (
-    id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) NOT NULL UNIQUE,
-    balance NUMERIC(15, 2) NOT NULL CHECK (balance >= 0),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Create the transactions table
-CREATE TABLE transactions (
-    id SERIAL PRIMARY KEY,
-    user_id UUID REFERENCES auth.users(id) NOT NULL,
-    description TEXT NOT NULL,
-    amount NUMERIC(15, 2) NOT NULL,
-    type TEXT NOT NULL, -- 'debit' or 'credit'
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Enable Row Level Security (RLS)
-ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-
--- Create policies to allow users to access their own data
-CREATE POLICY "Allow individual user access to their own account" ON accounts FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Allow individual user access to their own transactions" ON transactions FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Allow user to insert their own transactions" ON transactions FOR INSERT WITH CHECK (auth.uid() = user_id);
-
--- Function to handle transfers and create transactions
-CREATE OR REPLACE FUNCTION transfer_money(
-    sender_id UUID,
-    recipient_email TEXT,
-    transfer_amount NUMERIC
-)
-RETURNS VOID AS $$
-DECLARE
-    recipient_id UUID;
-BEGIN
-    -- Find recipient user_id from email
-    SELECT id INTO recipient_id FROM auth.users WHERE email = recipient_email;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Recipient not found';
-    END IF;
-
-    -- Debit sender
-    UPDATE accounts SET balance = balance - transfer_amount WHERE user_id = sender_id;
-    INSERT INTO transactions (user_id, description, amount, type) VALUES (sender_id, 'Transfer to ' || recipient_email, transfer_amount, 'debit');
-
-    -- Credit recipient
-    UPDATE accounts SET balance = balance + transfer_amount WHERE user_id = recipient_id;
-    INSERT INTO transactions (user_id, description, amount, type) VALUES (recipient_id, 'Transfer from ' || (SELECT email FROM auth.users WHERE id = sender_id), transfer_amount, 'credit');
-END;
-$$ LANGUAGE plpgsql;
-```
-
----
-
-### ⚙️ 3. Configure the Backend (Flask API)
+### ⚙️ 2. Configure the Backend (Flask API)
 
 ```bash
 cd backend
@@ -147,7 +67,7 @@ OPENAI_API_KEY="<YOUR_OPENAI_API_KEY>"
 
 ---
 
-### 💻 4. Configure the Frontend (React + Vite)
+### 💻 3. Configure the Frontend (React + Vite)
 
 From the root project directory:
 
