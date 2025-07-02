@@ -30,14 +30,15 @@ Through a hands-on interface, users can see the practical difference between wri
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Getting Started - Run locally
 
 ### 🔧 Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18 or later)
 - [Python](https://www.python.org/) (v3.9 or later)
-- An [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) account
+- An [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) account with an Entra ID application registered
 - An [Azure OpenAI API Key](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
+- ODBC Driver for SQL Server 18
 
 ---
 
@@ -61,8 +62,19 @@ pip install -r requirements.txt
 Create a `.env` file inside the `backend/` directory:
 
 ```env
-DATABASE_URL="<YOUR_AZURE_SQL_CONNECTION_STRING_URI>"
-OPENAI_API_KEY="<YOUR_OPENAI_API_KEY>"
+DB_SERVER="<YOUR_AZURE_SQL_CONNECTION_STRING_URI.database.windows.net>"
+DB_DATABASE="<banking_app>"
+DB_DRIVER="ODBC Driver 18 for SQL Server"
+
+AZURE_CLIENT_ID="<YOUR_AZURE_CLIENT_ID>"
+AZURE_CLIENT_SECRET="<YOUR_AZURE_CLIENT_SECRET>"
+AZURE_TENANT_ID="<YOUR_AZURE_TENANT_ID>"
+
+AZURE_OPENAI_KEY="<YOUR_OPENAI_API_KEY>"
+AZURE_OPENAI_ENDPOINT="<YOUR_OPENAI_ENDPOINT.openai.azure.com/>"
+AZURE_OPENAI_DEPLOYMENT=gpt-4.1-mini
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+
 ```
 
 ---
@@ -75,13 +87,6 @@ From the root project directory:
 npm install
 ```
 
-Create a `.env.local` file:
-
-```env
-VITE_AZURE_SQL_URL="<YOUR_AZURE_SQL_CONNECTION_STRING_URI>"
-VITE_BACKEND_URL="http://127.0.0.1:5000"
-```
-
 ---
 
 ### ▶️ 5. Run the Application
@@ -90,13 +95,14 @@ VITE_BACKEND_URL="http://127.0.0.1:5000"
 
 ```bash
 cd backend
-source venv/bin/activate
-flask run
+python3 app.py
 ```
 
-Backend will run on: [http://127.0.0.1:5000](http://127.0.0.1:5000)
+Backend will run on: [http://127.0.0.1:5001](http://127.0.0.1:5001)
 
 #### Terminal 2: Start Frontend
+
+Go to the root of your folder.
 
 ```bash
 npm run dev
@@ -109,6 +115,4 @@ Frontend will run on: [http://localhost:5173](http://localhost:5173)
 ## 🤝 Contributing
 
 Contributions are welcome!\
-If you have suggestions for improvements or find any bugs, feel free to [open an issue](https://github.com/<your-repo>/issues) or submit a pull request.
-
-
+If you have suggestions for improvements or find any bugs, feel free to [open an issue](https://github.com/Banking_App_SQL/issues) or submit a pull request.
