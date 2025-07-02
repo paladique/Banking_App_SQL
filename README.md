@@ -39,6 +39,7 @@ Through a hands-on interface, users can see the practical difference between wri
 - An [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) account with an Entra ID application registered
 - An [Azure OpenAI API Key](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 - ODBC Driver for SQL Server 18
+- Recommend VSCode as tested in VS Code only
 
 ---
 
@@ -88,6 +89,11 @@ npm install
 ```
 
 ---
+
+### ▶️ 4. Run Jupyter Notebook to create embeddings from the PDF Document
+
+Open the Jupyter Python Notebook in the path: Backend/Documentation ingestion_pdf_Bank_App.ipynb
+Ensure to use the same virtual enviornement as the backend (venv)
 
 ### ▶️ 5. Run the Application
 
