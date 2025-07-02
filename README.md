@@ -37,7 +37,7 @@ Through a hands-on interface, users can see the practical difference between wri
 - [Node.js](https://nodejs.org/) (v18 or later)
 - [Python](https://www.python.org/) (v3.9 or later)
 - An [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) account
-- An [OpenAI API Key](https://platform.openai.com/)
+- An [Azure OpenAI API Key](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 
 ---
 
@@ -62,7 +62,7 @@ cd Banking_App_SQL
 - Click **+ New Query**.
 - Paste the contents of `schema.sql` (see below) and run the query.
 
-#### c. Get Your Credentials
+#### c. Get Your Connection String
 
 From **Connection strings** in Azure SQL Database, note:
 
@@ -191,8 +191,4 @@ Frontend will run on: [http://localhost:5173](http://localhost:5173)
 Contributions are welcome!\
 If you have suggestions for improvements or find any bugs, feel free to [open an issue](https://github.com/<your-repo>/issues) or submit a pull request.
 
----
 
-## 📄 License
-
-This project is open-source and available under the [MIT License](LICENSE).
