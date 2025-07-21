@@ -92,8 +92,19 @@ npm install
 
 ### ▶️ 4. Run Jupyter Notebook to create embeddings from the PDF Document
 
-Open the Jupyter Python Notebook in the path: Backend/Documentation ingestion_pdf_Bank_App.ipynb
-Ensure to use the same virtual enviornement as the backend (venv)
+You need to ingest embeddings from the PDF in the SQL Database
+
+a. Copy the .env file in the folder **Data_Ingest**.
+b. From the folder **Data_Ingest** create a new virtual Python environment:
+
+```bash
+python3 -m venv new_env
+source new_env/bin/activate  # Or .\new_env\Scripts\activate on Windows
+pip install -r requirements.txt
+```
+
+c. Open the Jupyter Python Notebook in the path: Backend/Documentation ingestion_pdf_Bank_App.ipynb
+d. Run all the cells in the notebook
 
 ### ▶️ 5. Run the Application
 
