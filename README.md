@@ -50,8 +50,15 @@ git clone https://github.com/arno756/Banking_App_SQL.git
 cd Banking_App_SQL
 ```
 
+### 🗄️ 2. Set Up the Database
 
-### ⚙️ 2. Configure the Backend (Flask API)
+a. Create a database called ##banking_app##.
+
+b. The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data.
+
+You can execute this script against your Azure SQL Database using tools like VS Code Extension, SSMS, SQL Editor in Azure Portal or the sqlcmd command-line utility.
+
+### ⚙️ 3. Configure the Backend (Flask API)
 
 ```bash
 cd backend
@@ -80,7 +87,7 @@ AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 
 ---
 
-### 💻 3. Configure the Frontend (React + Vite)
+### 💻 4. Configure the Frontend (React + Vite)
 
 From the root project directory:
 
@@ -90,7 +97,7 @@ npm install
 
 ---
 
-### ▶️ 4. Run Jupyter Notebook to create embeddings from the PDF Document
+### ▶️ 5. Run Jupyter Notebook to create embeddings from the PDF Document
 
 You need to ingest embeddings from the PDF in the SQL Database
 
@@ -106,7 +113,7 @@ pip install -r requirements.txt
 c. Open the Jupyter Python Notebook in the path: Backend/Documentation ingestion_pdf_Bank_App.ipynb
 d. Run all the cells in the notebook
 
-### ▶️ 5. Run the Application
+### ▶️ 6. Run the Application
 
 #### Terminal 1: Start Backend
 
