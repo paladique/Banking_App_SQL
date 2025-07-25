@@ -111,6 +111,7 @@ pip install -r requirements.txt
 ```
 
 c. Open the Jupyter Python Notebook in the path: Backend/Documentation ingestion_pdf_Bank_App.ipynb
+
 d. Run all the cells in the notebook
 
 ### ▶️ 6. Run the Application
