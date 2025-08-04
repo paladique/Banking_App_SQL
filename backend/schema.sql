@@ -1,55 +1,74 @@
 -- Drop tables if they exist to start from a clean slate
-IF OBJECT_ID('transactions', 'U') IS NOT NULL DROP TABLE transactions;
-IF OBJECT_ID('accounts', 'U') IS NOT NULL DROP TABLE accounts;
-IF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS invoices;
+DROP TABLE IF EXISTS vendor_requests;
+DROP TABLE IF EXISTS vendors;
 
--- Create the 'users' table
-CREATE TABLE users (
+-- Create the 'vendors' table (enhanced with business fields)
+CREATE TABLE vendors (
     id NVARCHAR(255) PRIMARY KEY,
     name NVARCHAR(255) NOT NULL,
     email NVARCHAR(255) UNIQUE NOT NULL,
-    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    phone NVARCHAR(50),
+    address NVARCHAR(500),
+    tax_id NVARCHAR(50),
+    payment_terms_days INT DEFAULT 30,
+    credit_limit DECIMAL(15, 2),
+    is_active BIT DEFAULT 1,
+    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
 );
 
--- Create the 'accounts' table
-CREATE TABLE accounts (
+-- Create the 'invoices' table (fixed naming consistency and added business fields)
+CREATE TABLE invoices (
     id NVARCHAR(255) PRIMARY KEY,
-    user_id NVARCHAR(255) FOREIGN KEY REFERENCES users(id),
-    account_number NVARCHAR(255) UNIQUE NOT NULL,
-    account_type NVARCHAR(255) NOT NULL,
-    balance DECIMAL(15, 2) NOT NULL,
-    name NVARCHAR(255) NOT NULL,
-    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
-);
-
--- Create the 'transactions' table
-CREATE TABLE transactions (
-    id NVARCHAR(255) PRIMARY KEY,
-    from_account_id NVARCHAR(255) FOREIGN KEY REFERENCES accounts(id),
-    to_account_id NVARCHAR(255) FOREIGN KEY REFERENCES accounts(id),
+    invoice_number NVARCHAR(100) UNIQUE NOT NULL,
+    vendor_id NVARCHAR(255) NOT NULL,
     amount DECIMAL(15, 2) NOT NULL,
-    type NVARCHAR(255) NOT NULL,
-    description NTEXT,
-    category NVARCHAR(255),
-    status NVARCHAR(255) NOT NULL,
-    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET()
+    description NVARCHAR(1000),
+    invoice_date DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    due_date DATETIMEOFFSET NOT NULL,
+    paid BIT DEFAULT 0,
+    paid_date DATETIMEOFFSET NULL,
+    status AS CASE 
+        WHEN paid = 1 THEN 'Paid'
+        WHEN due_date < SYSDATETIMEOFFSET() THEN 'Overdue'
+        ELSE 'Pending'
+    END,
+    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    updated_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    CONSTRAINT FK_invoices_vendor_id FOREIGN KEY (vendor_id) REFERENCES vendors(id)
 );
 
--- Insert data into the 'users' table
-INSERT INTO users (id, name, email, created_at) VALUES
-('user_1', 'John Doe', 'john.doe@example.com', '2025-06-24T02:44:13.180Z');
+-- Create payments table to track partial payments
+CREATE TABLE payments (
+    id NVARCHAR(255) PRIMARY KEY,
+    invoice_id NVARCHAR(255) NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    payment_date DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    payment_method NVARCHAR(50),
+    reference_number NVARCHAR(100),
+    notes NVARCHAR(1000),
+    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    CONSTRAINT FK_payments_invoice_id FOREIGN KEY (invoice_id) REFERENCES invoices(id)
+);
 
--- Insert data into the 'accounts' table
-INSERT INTO accounts (id, user_id, account_number, account_type, balance, name, created_at) VALUES
-('acc_1', 'user_1', '123456789', 'checking', 4822.50, 'Primary Checking', '2025-06-24T02:44:13.197Z'),
-('acc_2', 'user_1', '987654321', 'savings', 13015.00, 'High-Yield Savings', '2025-06-24T02:44:13.197Z'),
-('acc_3', 'user_1', '112233445', 'credit', -490.00, 'Platinum Credit Card', '2025-06-24T02:44:13.197Z');
+-- Create vendor_requests table (fixed naming consistency and added business fields)
+CREATE TABLE vendor_requests (
+    id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    vendor_id NVARCHAR(255),
+    request_type NVARCHAR(100) NOT NULL,
+    status NVARCHAR(50) DEFAULT 'Pending',
+    summary NVARCHAR(MAX),
+    response NVARCHAR(MAX),
+    created_at DATETIMEOFFSET DEFAULT SYSDATETIMEOFFSET(),
+    processed_at DATETIMEOFFSET NULL,
+    CONSTRAINT FK_vendor_requests_vendor_id FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+);
 
--- Insert data into the 'transactions' table
-INSERT INTO transactions (id, from_account_id, to_account_id, amount, type, description, category, status, created_at) VALUES
-('txn_1', 'acc_1', NULL, 75.00, 'payment', 'Grocery Store', 'Groceries', 'completed', '2025-06-24T02:44:13.217Z'),
-('txn_2', 'acc_1', NULL, 1200.00, 'payment', 'Rent Payment', 'Housing', 'completed', '2025-06-24T02:44:13.217Z'),
-('txn_3', NULL, 'acc_1', 3000.00, 'deposit', 'Paycheck', 'Income', 'completed', '2025-06-24T02:44:13.217Z'),
-('txn_4', 'acc_1', 'acc_2', 500.00, 'transfer', 'Monthly Savings', 'Transfer', 'completed', '2025-06-24T02:44:13.217Z'),
-('txn_5', 'acc_3', NULL, 150.00, 'payment', 'Dinner with Friends', 'Food', 'completed', '2025-06-24T02:44:13.217Z'),
-('txn_6', 'acc_1', NULL, 25.50, 'payment', 'Coffee Shop', 'Food', 'completed', '2025-06-24T02:44:13.217Z');
+-- Create indexes for better performance in Azure SQL
+CREATE NONCLUSTERED INDEX IX_invoices_vendor_id ON invoices(vendor_id);
+CREATE NONCLUSTERED INDEX IX_invoices_status ON invoices(paid, due_date);
+CREATE NONCLUSTERED INDEX IX_payments_invoice_id ON payments(invoice_id);
+CREATE NONCLUSTERED INDEX IX_vendor_requests_vendor_id ON vendor_requests(vendor_id);
+CREATE NONCLUSTERED INDEX IX_vendor_requests_status ON vendor_requests(status);
