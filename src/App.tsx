@@ -1,119 +1,118 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
-import Transactions from './components/Transactions';
-import Transfer from './components/Transfer';
-import Analytics from './components/Analytics';
+import Dashboard from './components/ARDashboard';
+import Transactions from './components/ARTransactions';
+import Transfer from './components/ARTransfer';
+import Analytics from './components/ARAnalytics';
 import ChatBot from './components/ChatBot';
 import { MessageCircle, X } from 'lucide-react';
-import type { Account, Transaction } from './types/banking';
+import type { Vendor, Invoice } from './types/accounts-receivable';
 
 const API_URL = 'http://127.0.0.1:5001/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadBankingData();
+    loadAccountsReceivableData();
   }, []);
 
-  const loadBankingData = async () => {
+  const loadAccountsReceivableData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [accountsResponse, transactionsResponse] = await Promise.all([
-        fetch(`${API_URL}/accounts`),
-        fetch(`${API_URL}/transactions`),
+      const [vendorsResponse, invoicesResponse] = await Promise.all([
+        fetch(`${API_URL}/vendors`),
+        fetch(`${API_URL}/invoices`),
       ]);
-      if (!accountsResponse.ok || !transactionsResponse.ok) {
+      if (!vendorsResponse.ok || !invoicesResponse.ok) {
         throw new Error('Failed to fetch data from the server.');
       }
-      const accountsData = await accountsResponse.json();
-      const transactionsData = await transactionsResponse.json();
-      setAccounts(accountsData);
-      setTransactions(transactionsData);
+      const vendorsData = await vendorsResponse.json();
+      const invoicesData = await invoicesResponse.json();
+      setVendors(vendorsData);
+      setInvoices(invoicesData);
     } catch (error) {
-      console.error('Error loading banking data:', error);
-      setError('Could not connect to the banking service. Please ensure the backend is running and refresh.');
+      console.error('Error loading accounts receivable data:', error);
+      setError('Could not connect to the accounts receivable service. Please ensure the backend is running and refresh.');
     } finally {
       setLoading(false);
     }
   };
 
   // This function now just triggers a refresh, as the chatbot handles the transaction logic.
- const handleTransactionComplete = async (transactionData: Omit<Transaction, 'id' | 'created_at' | 'status'>, fromAccountName: string, toAccountName?: string) => {
+ const handleTransactionComplete = async (transactionData: any, fromAccountName: string, toAccountName?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_URL}/transactions`, {
+      const response = await fetch(`${API_URL}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          from_account_name: fromAccountName,
-          to_account_name: toAccountName,
+          invoice_id: transactionData.invoice_id,
           amount: transactionData.amount,
-          description: transactionData.description
+          payment_method: transactionData.payment_method || 'check',
+          notes: transactionData.description
         }),
       });
 
       if (!response.ok) {
         const errorResult = await response.json();
-        throw new Error(errorResult.message || 'Failed to complete transaction.');
+        throw new Error(errorResult.message || 'Failed to process payment.');
       }
       
-      // Transaction successful, now reload all data
-      await loadBankingData();
+      // Payment successful, now reload all data
+      await loadAccountsReceivableData();
 
     } catch (error: any) {
-      console.error('Error completing transaction:', error);
-      setError(error.message || 'An unexpected error occurred during the transaction.');
+      console.error('Error processing payment:', error);
+      setError(error.message || 'An unexpected error occurred during the payment.');
     } finally {
       setLoading(false);
     }
   };
 
-  // New function to handle account creation from the Transfer component
-  const handleAccountCreate = async (accountData: { account_type: 'checking' | 'savings', name: string, balance: number }) => {
+  // New function to handle vendor creation
+  const handleVendorCreate = async (vendorData: { name: string, email: string, phone?: string }) => {
     try {
-      const response = await fetch(`${API_URL}/accounts`, {
+      const response = await fetch(`${API_URL}/vendors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(accountData),
+        body: JSON.stringify(vendorData),
       });
-      if (!response.ok) throw new Error('Account creation failed.');
-      const newAccount = await response.json();
-      // Refresh all data to get the new account list
-      await loadBankingData();
-      return newAccount; // Return new account details if needed
+      if (!response.ok) throw new Error('Vendor creation failed.');
+      const newVendor = await response.json();
+      // Refresh all data to get the new vendor list
+      await loadAccountsReceivableData();
+      return newVendor; // Return new vendor details if needed
     } catch (err) {
-      console.error("Error creating account:", err);
-      setError("There was an error creating the new account.");
+      console.error("Error creating vendor:", err);
+      setError("There was an error creating the new vendor.");
       throw err; // Re-throw to be caught by the calling component
     }
   };
 
 
   const renderContent = () => {
-    if (loading) return <div className="text-center p-8">Loading Banking Data...</div>;
+    if (loading) return <div className="text-center p-8">Loading Accounts Receivable Data...</div>;
     if (error) return <div className="text-center p-8 text-red-600 bg-red-50 rounded-lg">{error}</div>;
 
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard accounts={accounts} recentTransactions={transactions} />;
-      case 'transactions':
-        return <Transactions transactions={transactions} accounts={accounts} />;
-      case 'transfer':
-        // Pass both handlers to the Transfer component
-        return <Transfer accounts={accounts} onTransactionComplete={handleTransactionComplete} onAccountCreate={handleAccountCreate} />;
+        return <Dashboard vendors={vendors} invoices={invoices} />;
+      case 'invoices':
+        return <Transactions invoices={invoices} vendors={vendors} />;
+      case 'payments':
+        return <Transfer vendors={vendors} onPaymentComplete={handleTransactionComplete} onVendorCreate={handleVendorCreate} />;
       case 'analytics':
-        return <Analytics transactions={transactions} accounts={accounts} />;
+        return <Analytics invoices={invoices} vendors={vendors} />;
       default:
-        return <Dashboard accounts={accounts} recentTransactions={transactions} />;
+        return <Dashboard vendors={vendors} invoices={invoices} />;
     }
   };
 

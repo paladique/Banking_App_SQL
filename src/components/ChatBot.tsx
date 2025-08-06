@@ -15,7 +15,7 @@ const ChatBot: React.FC<ChatBotProps> = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content: "Hello! I'm your AI banking assistant. I can help you check balances, transfer funds, create new accounts, and analyze your spending. How can I assist you today?",
+      content: "Hello! I'm your AI accounts receivable assistant. I can help you check invoice statuses, process payments, manage vendor information, and analyze outstanding receivables. How can I assist you today?",
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
@@ -71,7 +71,8 @@ const ChatBot: React.FC<ChatBotProps> = () => {
   return (
     <div className="flex flex-col h-full bg-white">
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-xl">
-        <h3 className="font-semibold">AI Banking Assistant</h3>
+        <h3 className="font-semibold">AI AR Assistant</h3>
+        <p className="text-xs text-blue-100">Accounts Receivable Helper</p>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (

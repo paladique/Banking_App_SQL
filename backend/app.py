@@ -1,14 +1,16 @@
 import os
 import urllib.parse
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from dateutil.relativedelta import relativedelta
 import numpy as np
+from decimal import Decimal
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import DateTime
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 from langchain_openai import AzureOpenAIEmbeddings
@@ -83,6 +85,18 @@ if embeddings_client:
     )
 
 # --- Database Models ---
+# Helper function to get timezone-aware UTC datetime
+def utc_now():
+    return datetime.now(timezone.utc)
+
+# Helper function to make datetime timezone-aware (UTC) if it's naive
+def make_utc_aware(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 # Helper function to convert model instances to dictionaries
 def to_dict_helper(instance):
     d = {}
@@ -90,81 +104,136 @@ def to_dict_helper(instance):
         value = getattr(instance, column.name)
         if isinstance(value, datetime):
             d[column.name] = value.isoformat()
+        elif isinstance(value, Decimal):
+            d[column.name] = float(value)
         else:
             d[column.name] = value
     return d
 
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.String(255), primary_key=True, default=lambda: f"user_{uuid.uuid4()}")
+class Vendor(db.Model):
+    __tablename__ = 'vendors'
+    id = db.Column(db.String(255), primary_key=True, default=lambda: f"vendor_{uuid.uuid4()}")
     name = db.Column(db.String(255), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    accounts = db.relationship('Account', backref='user', lazy=True)
+    phone = db.Column(db.String(50))
+    address = db.Column(db.String(500))
+    tax_id = db.Column(db.String(50))
+    payment_terms_days = db.Column(db.Integer, default=30)
+    credit_limit = db.Column(db.Numeric(15, 2))
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(DateTime(timezone=True), default=utc_now)
+    updated_at = db.Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    invoices = db.relationship('Invoice', backref='vendor', lazy=True)
+    vendor_requests = db.relationship('VendorRequest', backref='vendor', lazy=True)
 
     def to_dict(self):
         return to_dict_helper(self)
 
-class Account(db.Model):
-    __tablename__ = 'accounts'
-    id = db.Column(db.String(255), primary_key=True, default=lambda: f"acc_{uuid.uuid4()}")
-    user_id = db.Column(db.String(255), db.ForeignKey('users.id'), nullable=False)
-    account_number = db.Column(db.String(255), unique=True, nullable=False, default=lambda: str(uuid.uuid4().int)[:12])
-    account_type = db.Column(db.String(50), nullable=False)
-    balance = db.Column(db.Float, nullable=False)
-    name = db.Column(db.String(255), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class Invoice(db.Model):
+    __tablename__ = 'invoices'
+    id = db.Column(db.String(255), primary_key=True, default=lambda: f"invoice_{uuid.uuid4()}")
+    invoice_number = db.Column(db.String(100), unique=True, nullable=False)
+    vendor_id = db.Column(db.String(255), db.ForeignKey('vendors.id'), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    description = db.Column(db.String(1000))
+    invoice_date = db.Column(DateTime(timezone=True), default=utc_now)
+    due_date = db.Column(DateTime(timezone=True), nullable=False)
+    paid = db.Column(db.Boolean, default=False)
+    paid_date = db.Column(DateTime(timezone=True))
+    created_at = db.Column(DateTime(timezone=True), default=utc_now)
+    updated_at = db.Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    payments = db.relationship('Payment', backref='invoice', lazy=True)
+
+    @property
+    def status(self):
+        if self.paid:
+            return 'Paid'
+        elif self.due_date < utc_now():
+            return 'Overdue'
+        else:
+            return 'Pending'
+
+    def to_dict(self):
+        d = to_dict_helper(self)
+        d['status'] = self.status  # Add computed status
+        return d
+
+class Payment(db.Model):
+    __tablename__ = 'payments'
+    id = db.Column(db.String(255), primary_key=True, default=lambda: f"payment_{uuid.uuid4()}")
+    invoice_id = db.Column(db.String(255), db.ForeignKey('invoices.id'), nullable=False)
+    amount = db.Column(db.Numeric(15, 2), nullable=False)
+    payment_date = db.Column(DateTime(timezone=True), default=utc_now)
+    payment_method = db.Column(db.String(50))
+    reference_number = db.Column(db.String(100))
+    notes = db.Column(db.String(1000))
+    created_at = db.Column(DateTime(timezone=True), default=utc_now)
 
     def to_dict(self):
         return to_dict_helper(self)
 
-class Transaction(db.Model):
-    __tablename__ = 'transactions'
-    id = db.Column(db.String(255), primary_key=True, default=lambda: f"txn_{uuid.uuid4()}")
-    from_account_id = db.Column(db.String(255), db.ForeignKey('accounts.id'))
-    to_account_id = db.Column(db.String(255), db.ForeignKey('accounts.id'))
-    amount = db.Column(db.Float, nullable=False)
-    type = db.Column(db.String(50), nullable=False)
-    description = db.Column(db.String(255))
-    category = db.Column(db.String(255))
-    status = db.Column(db.String(50), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+class VendorRequest(db.Model):
+    __tablename__ = 'vendor_requests'
+    id = db.Column(db.String(255), primary_key=True, default=lambda: str(uuid.uuid4()))
+    vendor_id = db.Column(db.String(255), db.ForeignKey('vendors.id'))
+    request_type = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(50), default='Pending')
+    summary = db.Column(db.Text)
+    response = db.Column(db.Text)
+    created_at = db.Column(DateTime(timezone=True), default=utc_now)
+    processed_at = db.Column(DateTime(timezone=True))
 
     def to_dict(self):
         return to_dict_helper(self)
 
 # --- AI Chatbot Tool Definitions ---
 
-def get_user_accounts(user_id='user_1'):
-    """Retrieves all accounts for a given user."""
+def get_vendors(status='active'):
+    """Retrieves vendors, optionally filtered by status."""
     try:
-        accounts = Account.query.filter_by(user_id=user_id).all()
-        if not accounts:
-            return "No accounts found for this user."
+        if status == 'active':
+            vendors = Vendor.query.filter_by(is_active=True).all()
+        else:
+            vendors = Vendor.query.all()
+        
+        if not vendors:
+            return "No vendors found."
+        
         return json.dumps([
-            {"name": acc.name, "account_type": acc.account_type, "balance": acc.balance} 
-            for acc in accounts
+            {
+                "name": vendor.name, 
+                "email": vendor.email, 
+                "payment_terms_days": vendor.payment_terms_days,
+                "credit_limit": float(vendor.credit_limit) if vendor.credit_limit else 0,
+                "is_active": vendor.is_active
+            } 
+            for vendor in vendors
         ])
     except Exception as e:
-        return f"Error retrieving accounts: {str(e)}"
+        return f"Error retrieving vendors: {str(e)}"
 
-def get_transactions_summary(user_id='user_1', time_period='this month', account_name=None):
-    """Provides a summary of the user's spending. Can be filtered by a time period and a specific account."""
+def get_invoices_summary(status='all', vendor_name=None, time_period='this month'):
+    """Provides a summary of invoices. Can be filtered by status, vendor, and time period."""
     try:
-        query = db.session.query(Transaction.category, db.func.sum(Transaction.amount).label('total_spent')).filter(
-            Transaction.type == 'payment'
-        )
-        if account_name:
-            account = Account.query.filter_by(user_id=user_id, name=account_name).first()
-            if not account:
-                return json.dumps({"status": "error", "message": f"Account '{account_name}' not found."})
-            query = query.filter(Transaction.from_account_id == account.id)
-        else:
-            user_accounts = Account.query.filter_by(user_id=user_id).all()
-            account_ids = [acc.id for acc in user_accounts]
-            query = query.filter(Transaction.from_account_id.in_(account_ids))
-
-        end_date = datetime.utcnow()
+        query = Invoice.query
+        
+        # Filter by status
+        if status == 'outstanding':
+            query = query.filter_by(paid=False)
+        elif status == 'overdue':
+            query = query.filter(Invoice.due_date < utc_now(), Invoice.paid == False)
+        elif status == 'paid':
+            query = query.filter_by(paid=True)
+        
+        # Filter by vendor
+        if vendor_name:
+            vendor = Vendor.query.filter_by(name=vendor_name).first()
+            if not vendor:
+                return json.dumps({"status": "error", "message": f"Vendor '{vendor_name}' not found."})
+            query = query.filter_by(vendor_id=vendor.id)
+        
+        # Filter by time period
+        end_date = utc_now()
         if 'last 6 months' in time_period.lower():
             start_date = end_date - relativedelta(months=6)
         elif 'this year' in time_period.lower():
@@ -172,24 +241,32 @@ def get_transactions_summary(user_id='user_1', time_period='this month', account
         else:
             start_date = end_date.replace(day=1, hour=0, minute=0, second=0)
         
-        query = query.filter(Transaction.created_at.between(start_date, end_date))
-        results = query.group_by(Transaction.category).order_by(db.func.sum(Transaction.amount).desc()).all()
-        total_spending = sum(r.total_spent for r in results)
+        query = query.filter(Invoice.invoice_date.between(start_date, end_date))
+        invoices = query.all()
+        
+        if not invoices:
+            return json.dumps({
+                "status": "success", 
+                "summary": f"No invoices found for the specified criteria."
+            })
+        
+        total_amount = sum(float(inv.amount) for inv in invoices)
+        outstanding_amount = sum(float(inv.amount) for inv in invoices if not inv.paid)
+        overdue_amount = sum(float(inv.amount) for inv in invoices if inv.status == 'Overdue')
         
         summary_details = {
-            "total_spending": round(total_spending, 2),
+            "total_invoices": len(invoices),
+            "total_amount": round(total_amount, 2),
+            "outstanding_amount": round(outstanding_amount, 2),
+            "overdue_amount": round(overdue_amount, 2),
             "period": time_period,
-            "account_filter": account_name or "All Accounts",
-            "top_categories": [{"category": r.category, "amount": round(r.total_spent, 2)} for r in results[:3]]
+            "vendor_filter": vendor_name or "All Vendors"
         }
-
-        if not results:
-            return json.dumps({"status": "success", "summary": f"You have no spending for the period '{time_period}' in account '{account_name or 'All Accounts'}'."})
-
+        
         return json.dumps({"status": "success", "summary": summary_details})
     except Exception as e:
-        print(f"ERROR in get_transactions_summary: {e}")
-        return json.dumps({"status": "error", "message": f"An error occurred while generating the transaction summary."})
+        print(f"ERROR in get_invoices_summary: {e}")
+        return json.dumps({"status": "error", "message": f"An error occurred while generating the invoices summary."})
 
 def search_support_documents(user_question: str):
     """Searches the knowledge base for answers to customer support questions using vector search."""
@@ -213,83 +290,179 @@ def search_support_documents(user_question: str):
         print(f"ERROR in search_support_documents: {e}")
         return "An error occurred while searching for support documents."
 
-def create_new_account(user_id='user_1', account_type='checking', name=None, balance=0.0):
-    """Creates a new bank account for the user."""
-    if not name:
-        return json.dumps({"status": "error", "message": "An account name is required."})
+def create_new_vendor(name=None, email=None, phone=None, payment_terms_days=30, credit_limit=0):
+    """Creates a new vendor."""
+    if not name or not email:
+        return json.dumps({"status": "error", "message": "Vendor name and email are required."})
     try:
-        new_account = Account(user_id=user_id, account_type=account_type, balance=balance, name=name)
-        db.session.add(new_account)
+        new_vendor = Vendor(
+            name=name, 
+            email=email, 
+            phone=phone,
+            payment_terms_days=payment_terms_days,
+            credit_limit=credit_limit
+        )
+        db.session.add(new_vendor)
         db.session.commit()
         return json.dumps({
-            "status": "success", "message": f"Successfully created new {account_type} account '{name}' with balance ${balance:.2f}.",
-            "account_id": new_account.id, "account_name": new_account.name
+            "status": "success", 
+            "message": f"Successfully created new vendor '{name}' with {payment_terms_days} day payment terms.",
+            "vendor_id": new_vendor.id, 
+            "vendor_name": new_vendor.name
         })
     except Exception as e:
         db.session.rollback()
-        return f"Error creating account: {str(e)}"
+        return f"Error creating vendor: {str(e)}"
 
-def transfer_money(user_id='user_1', from_account_name=None, to_account_name=None, amount=0.0, to_external_details=None):
-    """Transfers money between user's accounts or to an external account."""
-    if not from_account_name or (not to_account_name and not to_external_details) or amount <= 0:
-        return json.dumps({"status": "error", "message": "Missing required transfer details."})
+def process_payment(invoice_id=None, amount=0.0, payment_method='check', notes=None):
+    """Process a payment against an invoice."""
+    if not invoice_id or amount <= 0:
+        return json.dumps({"status": "error", "message": "Invoice ID and payment amount are required."})
     try:
-        from_account = Account.query.filter_by(user_id=user_id, name=from_account_name).first()
-        if not from_account:
-            return json.dumps({"status": "error", "message": f"Account '{from_account_name}' not found."})
-        if from_account.balance < amount:
-            return json.dumps({"status": "error", "message": "Insufficient funds."})
+        invoice = Invoice.query.get(invoice_id)
+        if not invoice:
+            return json.dumps({"status": "error", "message": f"Invoice '{invoice_id}' not found."})
         
-        to_account = None
-        if to_account_name:
-            to_account = Account.query.filter_by(user_id=user_id, name=to_account_name).first()
-            if not to_account:
-                 return json.dumps({"status": "error", "message": f"Recipient account '{to_account_name}' not found."})
+        if invoice.paid:
+            return json.dumps({"status": "error", "message": "Invoice is already marked as paid."})
         
-        new_transaction = Transaction(
-            from_account_id=from_account.id, to_account_id=to_account.id if to_account else None,
-            amount=amount, type='transfer', description=f"Transfer to {to_account_name or to_external_details.get('name', 'External')}",
-            category='Transfer', status='completed'
+        # Create payment record
+        new_payment = Payment(
+            invoice_id=invoice_id,
+            amount=amount,
+            payment_method=payment_method,
+            notes=notes
         )
-        from_account.balance -= amount
-        if to_account:
-            to_account.balance += amount
-        db.session.add(new_transaction)
+        
+        # Check if this payment covers the full invoice amount
+        existing_payments = Payment.query.filter_by(invoice_id=invoice_id).all()
+        total_payments = sum(float(p.amount) for p in existing_payments) + float(amount)
+        
+        if total_payments >= float(invoice.amount):
+            invoice.paid = True
+            invoice.paid_date = utc_now()
+        
+        db.session.add(new_payment)
         db.session.commit()
-        return json.dumps({"status": "success", "message": f"Successfully transferred ${amount:.2f}."})
+        
+        return json.dumps({
+            "status": "success", 
+            "message": f"Successfully processed payment of ${amount:.2f} for invoice {invoice.invoice_number}."
+        })
     except Exception as e:
         db.session.rollback()
-        return f"Error during transfer: {str(e)}"
+        return f"Error processing payment: {str(e)}"
         
 # --- API Routes ---
-@app.route('/api/accounts', methods=['GET', 'POST'])
-def handle_accounts():
-    user_id = 'user_1'
+@app.route('/api/vendors', methods=['GET', 'POST'])
+def handle_vendors():
     if request.method == 'GET':
-        accounts = Account.query.filter_by(user_id=user_id).all()
-        return jsonify([acc.to_dict() for acc in accounts])
+        vendors = Vendor.query.all()
+        return jsonify([vendor.to_dict() for vendor in vendors])
     if request.method == 'POST':
         data = request.json
-        account_str = create_new_account(user_id=user_id, account_type=data.get('account_type'), name=data.get('name'), balance=data.get('balance', 0))
-        return jsonify(json.loads(account_str)), 201
+        vendor_str = create_new_vendor(
+            name=data.get('name'), 
+            email=data.get('email'), 
+            phone=data.get('phone'),
+            payment_terms_days=data.get('payment_terms_days', 30),
+            credit_limit=data.get('credit_limit', 0)
+        )
+        return jsonify(json.loads(vendor_str)), 201
 
-@app.route('/api/transactions', methods=['GET', 'POST'])
-def handle_transactions():
-    user_id = 'user_1'
+@app.route('/api/invoices', methods=['GET', 'POST'])
+def handle_invoices():
     if request.method == 'GET':
-        accounts = Account.query.filter_by(user_id=user_id).all()
-        account_ids = [acc.id for acc in accounts]
-        transactions = Transaction.query.filter((Transaction.from_account_id.in_(account_ids)) | (Transaction.to_account_id.in_(account_ids))).order_by(Transaction.created_at.desc()).all()
-        return jsonify([t.to_dict() for t in transactions])
+        invoices = Invoice.query.order_by(Invoice.created_at.desc()).all()
+        return jsonify([invoice.to_dict() for invoice in invoices])
     if request.method == 'POST':
         data = request.json
-        result_str = transfer_money(
-            user_id=user_id, from_account_name=data.get('from_account_name'), to_account_name=data.get('to_account_name'),
-            amount=data.get('amount'), to_external_details=data.get('to_external_details')
+        # Create new invoice (this would typically be done through an invoice creation function)
+        try:
+            new_invoice = Invoice(
+                invoice_number=data.get('invoice_number'),
+                vendor_id=data.get('vendor_id'),
+                amount=data.get('amount'),
+                description=data.get('description'),
+                due_date=make_utc_aware(datetime.strptime(data.get('due_date'), '%Y-%m-%d')) if data.get('due_date') else utc_now() + relativedelta(days=30)
+            )
+            db.session.add(new_invoice)
+            db.session.commit()
+            return jsonify(new_invoice.to_dict()), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 400
+
+@app.route('/api/payments', methods=['GET', 'POST'])
+def handle_payments():
+    if request.method == 'GET':
+        payments = Payment.query.order_by(Payment.created_at.desc()).all()
+        return jsonify([payment.to_dict() for payment in payments])
+    if request.method == 'POST':
+        data = request.json
+        result_str = process_payment(
+            invoice_id=data.get('invoice_id'),
+            amount=data.get('amount'),
+            payment_method=data.get('payment_method', 'check'),
+            notes=data.get('notes')
         )
         result = json.loads(result_str)
         status_code = 201 if result.get("status") == "success" else 400
         return jsonify(result), status_code
+
+@app.route('/api/vendor-requests', methods=['GET', 'POST'])
+def handle_vendor_requests():
+    if request.method == 'GET':
+        requests = VendorRequest.query.order_by(VendorRequest.created_at.desc()).all()
+        return jsonify([req.to_dict() for req in requests])
+    if request.method == 'POST':
+        data = request.json
+        try:
+            new_request = VendorRequest(
+                vendor_id=data.get('vendor_id'),
+                request_type=data.get('request_type'),
+                summary=data.get('summary')
+            )
+            db.session.add(new_request)
+            db.session.commit()
+            return jsonify(new_request.to_dict()), 201
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"error": str(e)}), 400
+
+@app.route('/api/dashboard-summary', methods=['GET'])
+def get_dashboard_summary():
+    """Get a summary of key AR metrics for the dashboard."""
+    try:
+        total_outstanding = db.session.query(db.func.sum(Invoice.amount)).filter_by(paid=False).scalar() or 0
+        total_overdue = db.session.query(db.func.sum(Invoice.amount)).filter(
+            Invoice.paid == False, 
+            Invoice.due_date < utc_now()
+        ).scalar() or 0
+        
+        active_vendors = Vendor.query.filter_by(is_active=True).count()
+        pending_invoices = Invoice.query.filter_by(paid=False).count()
+        overdue_invoices = Invoice.query.filter(
+            Invoice.paid == False,
+            Invoice.due_date < utc_now()
+        ).count()
+        
+        # Collections this month
+        start_of_month = utc_now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        collections_this_month = db.session.query(db.func.sum(Payment.amount)).filter(
+            Payment.payment_date >= start_of_month
+        ).scalar() or 0
+        
+        return jsonify({
+            "total_outstanding": round(float(total_outstanding), 2),
+            "total_overdue": round(float(total_overdue), 2),
+            "collections_this_month": round(float(collections_this_month), 2),
+            "active_vendors": active_vendors,
+            "pending_invoices": pending_invoices,
+            "overdue_invoices": overdue_invoices
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
@@ -301,24 +474,30 @@ def chatbot():
 
     tools = [
         {"type": "function", "function": {
-            "name": "get_user_accounts",
-            "description": "Get a list of all bank accounts belonging to the current user.",
-            "parameters": {"type": "object", "properties": {}}
+            "name": "get_vendors",
+            "description": "Get a list of vendors, optionally filtered by status.",
+            "parameters": {
+                "type": "object", 
+                "properties": {
+                    "status": {"type": "string", "enum": ["active", "all"], "description": "Filter vendors by status"}
+                }
+            }
         }},
         {"type": "function", "function": {
-            "name": "get_transactions_summary",
-            "description": "Get a summary of spending for the user, filterable by account and time period.",
+            "name": "get_invoices_summary",
+            "description": "Get a summary of invoices, filterable by status, vendor, and time period.",
              "parameters": {
                 "type": "object",
                 "properties": {
-                    "time_period": {"type": "string", "description": "e.g., 'this month', 'last 6 months'."},
-                    "account_name": {"type": "string", "description": "e.g., 'Primary Checking'."}
+                    "status": {"type": "string", "enum": ["all", "outstanding", "overdue", "paid"], "description": "Filter by invoice status"},
+                    "vendor_name": {"type": "string", "description": "Filter by specific vendor name"},
+                    "time_period": {"type": "string", "description": "e.g., 'this month', 'last 6 months'."}
                 },
             }
         }},
         {"type": "function", "function": {
             "name": "search_support_documents",
-            "description": "Use this for customer support questions, such as 'how to do X', 'what are the fees for Y', or policy questions.",
+            "description": "Use this for accounts receivable support questions, policies, or process questions.",
              "parameters": {
                 "type": "object",
                 "properties": {"user_question": {"type": "string", "description": "The user's full question."}},
@@ -326,21 +505,26 @@ def chatbot():
             }
         }},
         {"type": "function", "function": {
-            "name": "create_new_account",
-            "description": "Creates a new bank account for the user.",
+            "name": "create_new_vendor",
+            "description": "Creates a new vendor in the system.",
             "parameters": {"type": "object", "properties": {
-                "account_type": {"type": "string", "enum": ["checking", "savings", "credit"]},
-                "name": {"type": "string", "description": "The desired name for the new account."},
-                "balance": {"type": "number", "description": "The initial balance."}}, "required": ["account_type", "name"]
+                "name": {"type": "string", "description": "The vendor name."},
+                "email": {"type": "string", "description": "The vendor email address."},
+                "phone": {"type": "string", "description": "The vendor phone number."},
+                "payment_terms_days": {"type": "number", "description": "Payment terms in days."},
+                "credit_limit": {"type": "number", "description": "Credit limit amount."}
+            }, "required": ["name", "email"]
             }
         }},
         {"type": "function", "function": {
-            "name": "transfer_money",
-            "description": "Transfer funds between accounts or to an external account.",
+            "name": "process_payment",
+            "description": "Process a payment against an invoice.",
             "parameters": {"type": "object", "properties": {
-                "from_account_name": {"type": "string"}, "to_account_name": {"type": "string"}, "amount": {"type": "number"},
-                "to_external_details": {"type": "object", "properties": {"name": {"type": "string"},"accountNumber": {"type": "string"},"routingNumber": {"type": "string"}}}
-                }, "required": ["from_account_name", "amount"]
+                "invoice_id": {"type": "string", "description": "The invoice ID to pay against."}, 
+                "amount": {"type": "number", "description": "Payment amount."},
+                "payment_method": {"type": "string", "description": "Payment method (check, wire, ach, etc.)"},
+                "notes": {"type": "string", "description": "Payment notes or reference."}
+                }, "required": ["invoice_id", "amount"]
             }
         }}
     ]
@@ -353,11 +537,11 @@ def chatbot():
     if tool_calls:
         messages.append(response_message)
         available_functions = {
-            "get_user_accounts": get_user_accounts,
-            "get_transactions_summary": get_transactions_summary,
+            "get_vendors": get_vendors,
+            "get_invoices_summary": get_invoices_summary,
             "search_support_documents": search_support_documents,
-            "create_new_account": create_new_account,
-            "transfer_money": transfer_money,
+            "create_new_vendor": create_new_vendor,
+            "process_payment": process_payment,
         }
 
         for tool_call in tool_calls:

@@ -1,21 +1,21 @@
-# 🏦  AI Banking App with SQL, Flask and Typescript
+# 💰 Zava Accounts Receivable - AR Management System
 
-**AI Banking App** is an interactive web application designed to simulate a modern banking dashboard. Its primary purpose is to serve as an educational tool, demonstrating how SQL-based databases are leveraged across different types of workloads: **OLTP**, **OLAP**, and **AI-driven analysis**.
+**Zava AR Management System** is an interactive web application designed to manage accounts receivable for the fictitious company Zava. This application demonstrates how SQL-based databases are leveraged across different types of workloads: **OLTP**, **OLAP**, and **AI-driven analysis** in the context of vendor invoice management and payment processing.
 
-Through a hands-on interface, users can see the practical difference between writing a new transaction to the database, running complex analytical queries on historical data, and using natural language to ask an AI to query the database for them.
+Through a hands-on interface, users can manage vendor information, track invoices, process payments, and use natural language to query accounts receivable data with AI assistance.
 
 ---
 
 ## ✨ Features
 
-- **Dashboard**: A central hub to view account balance and navigate the application.
-- **Transactions (OLTP)**: View a real-time list of all past transactions. This demonstrates a typical high-volume, read-heavy OLTP workload.
-- **Money Transfer (OLTP)**: Perform transfers between accounts. This showcases a classic atomic, write-heavy OLTP operation that must be fast and reliable.
-- **Financial Analytics (OLAP)**: Explore an analytics dashboard with charts and summaries of spending habits. This represents an OLAP workload, running complex, aggregate queries over a large dataset.
+- **Dashboard**: A central hub to view outstanding receivables, vendor status, and navigate the application.
+- **Invoice Management (OLTP)**: View and track all vendor invoices with real-time status updates. This demonstrates a typical high-volume, read-heavy OLTP workload.
+- **Payment Processing (OLTP)**: Process payments against invoices and manage vendor payment histories. This showcases a classic atomic, write-heavy OLTP operation that must be fast and reliable.
+- **AR Analytics (OLAP)**: Explore an analytics dashboard with charts and summaries of receivables aging, vendor payment patterns, and cash flow trends. This represents an OLAP workload, running complex, aggregate queries over a large dataset.
 - **AI Agent (AI Workload)**: 
-    - Ask questions about your finances in plain English (e.g., "How much did I spend on groceries last month?"). An AI agent translates your question into a SQL query, executes it, and returns the answer.
-    - Get customer support from using RAG over documents
-    - Open new account, transfer money in plain English through an action oriented data agent
+    - Ask questions about your receivables in plain English (e.g., "Which vendors have overdue invoices over $5,000?"). An AI agent translates your question into a SQL query, executes it, and returns the answer.
+    - Get support with AR processes using RAG over company documents
+    - Process payments, update vendor information in plain English through an action-oriented data agent
 
 ---
 
@@ -52,9 +52,9 @@ cd Banking_App_SQL
 
 ### 🗄️ 2. Set Up the Database
 
-a. Create a database called ##banking_app##.
+a. Create a database called ##zava_ar_system##.
 
-b. The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data.
+b. The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (vendors, invoices, payments, vendor_requests) and populate them with sample data.
 
 You can execute this script against your Azure SQL Database using tools like VS Code Extension, SSMS, SQL Editor in Azure Portal or the sqlcmd command-line utility.
 

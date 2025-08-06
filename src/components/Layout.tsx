@@ -12,8 +12,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
 
   const navigation = [
     { id: 'dashboard', label: 'Dashboard', icon: '🏠' },
-    { id: 'transactions', label: 'Transactions', icon: '💳' },
-    { id: 'transfer', label: 'Transfer', icon: '🔄' },
+    { id: 'invoices', label: 'Invoices', icon: '�' },
+    { id: 'payments', label: 'Payments', icon: '�' },
     { id: 'analytics', label: 'Analytics', icon: '📊' },
   ];
 
@@ -26,8 +26,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
             <div className="flex items-center">
               <div className="flex-shrink-0">
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-800 to-blue-600 bg-clip-text text-transparent">
-                  SecureBank
+                  Zava AR
                 </h1>
+                <p className="text-xs text-gray-500">Accounts Receivable</p>
               </div>
               <nav className="hidden md:ml-10 md:flex md:space-x-8">
                 {navigation.map((item) => (
@@ -58,7 +59,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange }) => 
                 <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center">
                   <User className="h-4 w-4 text-white" />
                 </div>
-                <span className="hidden md:block text-sm font-medium text-gray-700">John Doe</span>
+                <span className="hidden md:block text-sm font-medium text-gray-700">AR Manager</span>
               </div>
               <button className="md:hidden p-2" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
                 {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
