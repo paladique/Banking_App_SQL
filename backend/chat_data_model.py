@@ -144,11 +144,12 @@ def init_chat_db(database):
                 db.session.commit()
 
         
-        def add_message(self, trace_id: str, message_type: str, content: str, **kwargs):
+        def add_message(self, trace_id: str, message_type: str, content: str, agent_id:str, **kwargs):
             """Add a message to the chat history"""
             message = ChatHistory(
                 session_id=self.session_id,
                 user_id=self.user_id,
+                agent_id = agent_id,
                 message_type=message_type,
                 content=content,
                 trace_id=trace_id,
@@ -158,17 +159,18 @@ def init_chat_db(database):
             db.session.commit()
             return message
 
-        def add_tool_call(self, trace_id: str, tool_call_id: str, tool_name: str, tool_input: dict, content: str = None):
+        def add_tool_call(self, agent_id: str, trace_id: str, tool_call_id: str, tool_name: str, tool_input: dict, content: str = None):
             """Log a tool call"""
             content = content or f"Calling tool: {tool_name}"
             print(f"Adding tool call: {tool_name} with ID: {tool_call_id}")
             return self.add_message(
+                agent_id=agent_id,
                 trace_id=trace_id,
                 message_type='tool_call',
-                content=content,
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
-                tool_input=tool_input
+                tool_input=tool_input,
+                content=content
             )
 
         def add_tool_result(self, trace_id: str, tool_call_id: str, tool_name: str, tool_output: dict, 
