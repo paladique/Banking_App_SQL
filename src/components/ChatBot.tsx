@@ -20,16 +20,56 @@ const ChatBot: React.FC<ChatBotProps> = () => {
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   const API_URL = 'http://127.0.0.1:5001/api';
+  const ANALYTICS_API_URL = 'http://127.0.0.1:5002/api';
+
+  // Initialize or get existing session
+  useEffect(() => {
+    const initializeSession = async () => {
+      // Try to get existing session from localStorage
+      const savedSessionId = localStorage.getItem('chatSessionId');
+      
+      if (savedSessionId) {
+        setSessionId(savedSessionId);
+      } else {
+        // Create a new session
+        try {
+          const response = await fetch(`${ANALYTICS_API_URL}/chat/sessions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              title: `Chat Session ${new Date().toLocaleString()}`,
+              user_id: 'user_1' 
+            }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setSessionId(data.session_id);
+            localStorage.setItem('chatSessionId', data.session_id);
+          }
+        } catch (error) {
+          console.error("Failed to create session:", error);
+          // If session creation fails, generate a temporary one
+          const tempSessionId = `temp_session_${Date.now()}`;
+          setSessionId(tempSessionId);
+          localStorage.setItem('chatSessionId', tempSessionId);
+        }
+      }
+    };
+
+    initializeSession();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+    if (!inputMessage.trim() || !sessionId) return;
 
     const newMessages: ChatMessage[] = [...messages, { role: 'user', content: inputMessage }];
     setMessages(newMessages);
@@ -37,11 +77,15 @@ const ChatBot: React.FC<ChatBotProps> = () => {
     setIsTyping(true);
 
     try {
-      // The conversation history is sent to the backend
+      // Send both messages and session_id to the backend
       const response = await fetch(`${API_URL}/chatbot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: newMessages }), 
+        body: JSON.stringify({ 
+          messages: newMessages,
+          session_id: sessionId,
+          user_id: 'user_1'
+        }), 
       });
 
       if (!response.ok) {
@@ -49,6 +93,12 @@ const ChatBot: React.FC<ChatBotProps> = () => {
       }
 
       const data = await response.json();
+      
+      // Update session_id if the backend returns a new one
+      if (data.session_id && data.session_id !== sessionId) {
+        setSessionId(data.session_id);
+        localStorage.setItem('chatSessionId', data.session_id);
+      }
       
       // Add the AI's final response to the history
       setMessages([...newMessages, { role: 'assistant', content: data.response }]);
@@ -68,10 +118,49 @@ const ChatBot: React.FC<ChatBotProps> = () => {
     }
   };
 
+  // Function to start a new chat session
+  const startNewSession = async () => {
+    try {
+      const response = await fetch(`${ANALYTICS_API_URL}/chat/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          title: `New Chat ${new Date().toLocaleString()}`,
+          user_id: 'user_1' 
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSessionId(data.session_id);
+        localStorage.setItem('chatSessionId', data.session_id);
+        
+        // Reset messages to initial state
+        setMessages([{
+          role: "assistant",
+          content: "Hello! I'm your AI banking assistant. I can help you check balances, transfer funds, create new accounts, and analyze your spending. How can I assist you today?",
+        }]);
+      }
+    } catch (error) {
+      console.error("Failed to create new session:", error);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-white">
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-xl">
-        <h3 className="font-semibold">AI Banking Assistant</h3>
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-4 rounded-t-xl flex justify-between items-center">
+        <div>
+          <h3 className="font-semibold">AI Banking Assistant</h3>
+          {sessionId && (
+            <p className="text-xs text-blue-100">Session: {sessionId.substring(0, 8)}...</p>
+          )}
+        </div>
+        <button 
+          onClick={startNewSession}
+          className="px-3 py-1 bg-blue-500 hover:bg-blue-400 rounded text-xs"
+        >
+          New Chat
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((message, index) => (
@@ -99,8 +188,13 @@ const ChatBot: React.FC<ChatBotProps> = () => {
             onKeyPress={handleKeyPress}
             placeholder="Ask me anything..."
             className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={!sessionId}
           />
-          <button onClick={handleSendMessage} disabled={isTyping} className="px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50">
+          <button 
+            onClick={handleSendMessage} 
+            disabled={isTyping || !sessionId} 
+            className="px-4 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50"
+          >
             <Send className="h-4 w-4" />
           </button>
         </div>
