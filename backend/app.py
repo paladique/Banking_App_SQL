@@ -1,4 +1,4 @@
-import os
+
 import urllib.parse
 import uuid
 from datetime import datetime
@@ -21,7 +21,11 @@ from langchain_community.callbacks.manager import get_openai_callback
 from chat_data_model import init_chat_db
 from db_connect import create_azuresql_connection, create_fabricsql_connection
 
+import threading
+import time
+
 # Load Environment variables and initialize app
+import os
 load_dotenv(override=True)
 
 app = Flask(__name__)
@@ -91,12 +95,10 @@ fabric_db = SQLAlchemy(app2)
 # Initialize chat history module with database
 init_chat_db(fabric_db)
 from chat_data_model import (ToolDefinition, ChatHistoryManager,
-  handle_chat_sessions, get_session_tool_usage, export_chat_session, clear_chat_history, clear_session_data
-  )
+  handle_chat_sessions, get_session_tool_usage, export_chat_session, clear_chat_history,
+  clear_session_data, initialize_tool_definitions, initialize_agent_definitions)
 
-print("Database connections successful!")
 print("Connecting to vector store...")
-
 
 # Vector Store Initialization:
 server = os.getenv('DB_SERVER')
@@ -362,38 +364,31 @@ def handle_tool_definitions():
         fabric_db.session.commit()
         return jsonify(tool_def.to_dict()), 201
 
-# Global session management
-global_session_id = None
 
+global trace_id
+trace_id = None
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
-    global global_session_id
     if not ai_client:
         return jsonify({"error": "Azure OpenAI client is not configured."}), 503
 
     data = request.json
     messages = data.get("messages", [])
-
-    if global_session_id is not None:
-        session_id = global_session_id
-    else:
-        session_id = data.get("session_id") or f"session_{uuid.uuid4()}"
-        global_session_id = session_id
-
-    user_id = data.get("user_id", "user_1")
     
+    # Session management
+    session_id = data.get("session_id")  # Frontend provides existing session_id
+    user_id = data.get("user_id", "user_1")
+
     with app2.app_context():
-        # Initialize chat history manager
-        chat_manager = ChatHistoryManager(session_id, user_id)
-        
-        # Generate message_id only for human messages and log the user's message
-        human_message_id = None
         if messages and messages[-1].get("role") == "user":
-            human_message = chat_manager.add_message(
+            new_trace_id = f"traceID_{uuid.uuid4()}"
+            chat_manager = ChatHistoryManager(session_id, user_id)
+            chat_manager.add_message(
+                trace_id=new_trace_id,
                 message_type='human',
                 content=messages[-1].get("content")
             )
-            human_message_id = human_message.id
+            trace_id = new_trace_id
 
     tools = [
         {"type": "function", "function": {
@@ -446,7 +441,7 @@ def chatbot():
         print(f"Total tokens: {callback.total_tokens}")
         print(f"Total cost: ${callback.total_cost:.4f}")
 
-    print("first response trace:")
+    print("first response:")
     for choice in response.choices:
         print(f"Choice: {choice}")
         print("-----------------------------------------")
@@ -454,6 +449,7 @@ def chatbot():
     tool_calls = response_message.tool_calls
 
     if tool_calls:
+        print("using tools ...")
         messages.append(response_message)
         available_functions = {
             "get_user_accounts": get_user_accounts,
@@ -470,6 +466,15 @@ def chatbot():
             # Execute the tool
             tool_start_time = time.time()
             function_to_call = available_functions[function_name]
+
+            with app2.app_context():
+                # Log tool call start
+                chat_manager.add_tool_call(
+                    trace_id=trace_id,
+                    tool_call_id=tool_call.id,
+                    tool_name=function_name,
+                    tool_input=function_args
+                )
             
             try:
                 function_response = function_to_call(**function_args)
@@ -484,14 +489,9 @@ def chatbot():
                 tool_output = {"error": str(e)}
 
             with app2.app_context():
-                # Log tool call start
-                chat_manager.add_tool_call(
-                    tool_call_id=tool_call.id,
-                    tool_name=function_name,
-                    tool_input=function_args
-                )
                 # Log tool result in chat history
                 chat_manager.add_tool_result(
+                    trace_id=trace_id,
                     tool_call_id=tool_call.id,
                     tool_name=function_name,
                     tool_output=tool_output,
@@ -502,6 +502,7 @@ def chatbot():
                 
                 # Log detailed tool usage metrics
                 chat_manager.log_tool_usage(
+                    trace_id=trace_id,
                     tool_call_id=tool_call.id,
                     tool_name=function_name,
                     tool_input=function_args,
@@ -509,7 +510,6 @@ def chatbot():
                     error=tool_error,
                     execution_time_ms=tool_execution_time,
                     tokens_used=response.usage.total_tokens,
-                    message_id=human_message_id
                 )
             
             # Prepare content for LangChain message format
@@ -539,13 +539,12 @@ def chatbot():
         with app2.app_context():
             # Log the final AI response
             chat_manager.add_message(
+                trace_id=trace_id,
                 message_type='ai',
                 content=final_message,
-                response_md={
-                    "model": AZURE_OPENAI_DEPLOYMENT,
-                    "response_time_ms": final_response_time,
-                    "tool_calls_made": len(tool_calls)
-                }
+                model = AZURE_OPENAI_DEPLOYMENT,
+                response_time_ms = final_response_time,
+                tool_calls_made = len(tool_calls)
             )
         
         return jsonify({
@@ -561,12 +560,52 @@ def chatbot():
         "tools_used": []
     })
 
+
+def run_banking_app():
+    """Run the main banking app on port 5001"""
+    print("🏦 Starting Banking App on port 5001...")
+    app.run(debug=False, port=5001, use_reloader=False)
+
+def run_analytics_app():
+    """Run the analytics app on port 5002"""
+    print("📊 Starting Analytics App on port 5002...")
+    app2.run(debug=False, port=5002, use_reloader=False)
+
 if __name__ == '__main__':
+    # Initialize database connections
+    print("[0] Connecting to database ... You may be prompted to provide credentials.")
+
     # Initialize banking database tables
     with app.app_context():
         db.create_all()
-    
-    # Initialize fabric database tables  
+        print("[1] Banking database initialized")
+
+    # Initialize fabric database tables
     with app2.app_context():
-        fabric_db.create_all()   
-    app.run(debug=True, port=5001)
+        fabric_db.create_all()
+        print("[2] Analytics database initialized")
+        initialize_tool_definitions()
+        print("[3] tool definitions initialized")
+        initialize_agent_definitions()
+        print("[4] agent definitions initialized")
+
+    # Create threads for both apps
+    banking_thread = threading.Thread(target=run_banking_app, daemon=True)
+    analytics_thread = threading.Thread(target=run_analytics_app, daemon=True)
+    
+    # Start both apps
+    banking_thread.start()
+    time.sleep(1)  # Give banking app a moment to start
+    analytics_thread.start()
+    
+    print("\n Both apps are running!")
+    print("Banking App Address: http://127.0.0.1:5001/")
+    print("Operational Analytics API: http://127.0.0.1:5002/api")
+    print("\nPress Ctrl+C to stop both servers...")
+    
+    try:
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n Shutting down both servers...")
