@@ -6,6 +6,10 @@ import Transfer from './components/Transfer';
 import Analytics from './components/Analytics';
 import ChatBot from './components/ChatBot';
 import { MessageCircle, X } from 'lucide-react';
+
+import ChatSessions from './components/ChatSessions';
+import ToolAnalytics from './components/ToolAnalytics';
+
 import type { Account, Transaction } from './types/banking';
 
 const API_URL = 'http://127.0.0.1:5001/api';
@@ -112,6 +116,12 @@ function App() {
         return <Transfer accounts={accounts} onTransactionComplete={handleTransactionComplete} onAccountCreate={handleAccountCreate} />;
       case 'analytics':
         return <Analytics transactions={transactions} accounts={accounts} />;
+      
+      case 'chat-sessions':
+        return <ChatSessions />;
+      case 'tool-analytics':
+        return <ToolAnalytics />;
+        
       default:
         return <Dashboard accounts={accounts} recentTransactions={transactions} />;
     }
