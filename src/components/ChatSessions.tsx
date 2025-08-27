@@ -30,22 +30,22 @@ const ChatSessions: React.FC = () => {
     }
   };
 
-  const handleExportSession = async (sessionId: string) => {
-    try {
-      const blob = await AnalyticsAPI.exportChatSession(sessionId);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = `chat-session-${sessionId}.json`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to export session');
-    }
-  };
+  // const handleExportSession = async (sessionId: string) => {
+  //   try {
+  //     const blob = await AnalyticsAPI.exportChatSession(sessionId);
+  //     const url = window.URL.createObjectURL(blob);
+  //     const a = document.createElement('a');
+  //     a.style.display = 'none';
+  //     a.href = url;
+  //     a.download = `chat-session-${sessionId}.json`;
+  //     document.body.appendChild(a);
+  //     a.click();
+  //     window.URL.revokeObjectURL(url);
+  //     document.body.removeChild(a);
+  //   } catch (err) {
+  //     setError(err instanceof Error ? err.message : 'Failed to export session');
+  //   }
+  // };
 
   const handleDeleteSession = async (sessionId: string) => {
     if (!confirm('Are you sure you want to delete this session?')) return;
@@ -162,14 +162,14 @@ const ChatSessions: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-2">
-                  <button
+                  {/* <button
                     onClick={() => handleExportSession(session.session_id)}
                     className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 flex items-center gap-1"
                     disabled={!isConnected}
                   >
                     <Download className="h-4 w-4" />
                     Export
-                  </button>
+                  </button> */}
                   <button
                     onClick={() => handleDeleteSession(session.session_id)}
                     className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 flex items-center gap-1"

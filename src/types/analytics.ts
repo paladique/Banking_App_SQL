@@ -7,42 +7,45 @@ export interface ChatSession {
 }
 
 export interface ChatHistory {
-  id: string;
+  message_id: string;
   session_id: string;
+  trace_id: string;
   user_id: string;
+  agent_id?: string;
   message_type: 'human' | 'ai' | 'system' | 'tool_call' | 'tool_result';
   content: string;
-  timestamp: string;
-  created_at: string;
-  updated_at: string;
-  additional_kwargs?: Record<string, any>;
-  response_md?: Record<string, any>;
+
+  model_name: string;
+  content_filter_results: Record<string, any>;
+  total_tokens: number;
+  completion_tokens: number;
+  prompt_tokens: number;
+
+
   tool_call_id?: string;
+  tool_input_id?: string;
   tool_name?: string;
   tool_input?: Record<string, any>;
   tool_output?: Record<string, any>;
-  tool_error?: string;
-  tool_execution_time_ms?: number;
+
+  finish_reason?: string;
+  response_time_ms?: number;
+  trace_end?: Date;
+
 }
 
 export interface ToolUsage {
-  id: string;
+  tool_call_id: string;
   session_id: string;
   user_id: string;
   message_id: string;
-  tool_call_id: string;
+  trace_id: string;
   tool_name: string;
   tool_input: Record<string, any>;
   tool_output?: Record<string, any>;
-  tool_error?: string;
-  execution_time_ms: number;
+  tool_id?: string;
   status: 'pending' | 'success' | 'error' | 'timeout';
-  started_at: string;
-  completed_at?: string;
-  cost_cents?: number;
   tokens_used?: number;
-  rate_limit_hit: boolean;
-  retry_count: number;
 }
 
 export interface ToolDefinition {
@@ -57,16 +60,16 @@ export interface ToolDefinition {
   updated_at: string;
 }
 
-export interface AnalyticsData {
-  totalSessions: number;
-  totalMessages: number;
-  totalToolCalls: number;
-  averageSessionLength: number;
-  mostUsedTools: Array<{
-    tool_name: string;
-    usage_count: number;
-    avg_execution_time: number;
-  }>;
-  errorRate: number;
-  totalCost: number;
-}
+// export interface AnalyticsData {
+//   totalSessions: number;
+//   totalMessages: number;
+//   totalToolCalls: number;
+//   averageSessionLength: number;
+//   mostUsedTools: Array<{
+//     tool_name: string;
+//     usage_count: number;
+//     avg_execution_time: number;
+//   }>;
+//   errorRate: number;
+//   totalCost: number;
+// }

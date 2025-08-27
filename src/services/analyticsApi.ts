@@ -1,9 +1,9 @@
 import type { 
   ChatSession, 
-  ChatHistory, 
-  ToolUsage, 
+  // ChatHistory, 
+  // ToolUsage, 
   ToolDefinition, 
-  AnalyticsData 
+  // AnalyticsData 
 } from '../types/analytics';
 
 // Analytics API runs on port 5002
@@ -42,35 +42,6 @@ export class AnalyticsAPI {
       throw error;
     }
   }
-
-  // Tool Usage Analytics
-  static async getToolUsage(sessionId: string): Promise<ToolUsage[]> {
-    try {
-      const response = await fetch(`${ANALYTICS_API_URL}/tools/usage/${sessionId}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tool usage: ${response.status} ${response.statusText}`);
-      }
-      return response.json();
-    } catch (error) {
-      console.error('Error fetching tool usage:', error);
-      throw error;
-    }
-  }
-
-  // Chat Export
-  static async exportChatSession(sessionId: string): Promise<Blob> {
-    try {
-      const response = await fetch(`${ANALYTICS_API_URL}/chat/export/${sessionId}`);
-      if (!response.ok) {
-        throw new Error(`Failed to export chat session: ${response.status} ${response.statusText}`);
-      }
-      return response.blob();
-    } catch (error) {
-      console.error('Error exporting chat session:', error);
-      throw error;
-    }
-  }
-
   // Tool Definitions
   static async getToolDefinitions(): Promise<ToolDefinition[]> {
     try {
@@ -129,18 +100,6 @@ export class AnalyticsAPI {
       }
     } catch (error) {
       console.error('Error clearing session:', error);
-      throw error;
-    }
-  }
-
-  // Get all chat sessions with analytics data
-  static async getSessionsWithAnalytics(): Promise<ChatSession[]> {
-    try {
-      const sessions = await this.getChatSessions();
-      // You could enhance this to get additional analytics per session
-      return sessions;
-    } catch (error) {
-      console.error('Error fetching sessions with analytics:', error);
       throw error;
     }
   }
