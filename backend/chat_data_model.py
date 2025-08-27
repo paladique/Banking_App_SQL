@@ -1,9 +1,8 @@
 import uuid
 from datetime import datetime
 import json
-import time
-import numpy as np
 from flask import jsonify
+from shared.utils import _to_json_primitive
 
 # Global variables that will be set by the main app
 db = None
@@ -45,8 +44,8 @@ def init_chat_db(database):
         session_id = db.Column(db.String(255), primary_key=True, default=lambda: f"session_{uuid.uuid4()}")
         user_id = db.Column(db.String(255), nullable=False)
         title = db.Column(db.String(500))
-        created_at = db.Column(db.DateTime, default=datetime.utcnow)
-        updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+        created_at = db.Column(db.DateTime, default=datetime.now())
+        updated_at = db.Column(db.DateTime, default=datetime.now(), onupdate=datetime.now())
 
         def to_dict(self):
             return to_dict_helper(self)
@@ -60,8 +59,8 @@ def init_chat_db(database):
         version = db.Column(db.String(50), default='1.0.0')
         is_active = db.Column(db.Boolean, default=True)
         cost_per_call_cents = db.Column(db.Integer, default=0) 
-        created_at = db.Column(db.DateTime, default=datetime.utcnow)
-        updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+        created_at = db.Column(db.DateTime, default=datetime.now())
+        updated_at = db.Column(db.DateTime, default=datetime.now(), onupdate=datetime.now())
 
         def to_dict(self):
             return to_dict_helper(self)
@@ -76,17 +75,10 @@ def init_chat_db(database):
         tool_name = db.Column(db.String(255), nullable=False)
         tool_input = db.Column(db.JSON, nullable=False)
         tool_output = db.Column(db.JSON)
-        tool_error = db.Column(db.Text)
-        execution_time_ms = db.Column(db.Integer)
         status = db.Column(db.String(50), default='pending')  # 'pending', 'success', 'error', 'timeout'
-        started_at = db.Column(db.DateTime, default=datetime.utcnow)
-        completed_at = db.Column(db.DateTime)
         
         # Additional tracking fields
-        cost_cents = db.Column(db.Integer)  # For paid APIs
         tokens_used = db.Column(db.Integer)
-        rate_limit_hit = db.Column(db.Boolean, default=False)
-        retry_count = db.Column(db.Integer, default=0)
 
         def to_dict(self):
             return to_dict_helper(self)
@@ -97,31 +89,28 @@ def init_chat_db(database):
         session_id = db.Column(db.String(255), db.ForeignKey('chat_sessions.session_id'))
         trace_id = db.Column(db.String(255), nullable=False)
         user_id = db.Column(db.String(255), nullable=False)
-        agent_id = db.Column(db.String(255), db.ForeignKey('agent_definitions.agent_id'))
+        agent_id = db.Column(db.String(255), nullable=True)
         message_type = db.Column(db.String(50), nullable=False)  # 'human', 'ai', 'system', 'tool_call', 'tool_result'
         content = db.Column(db.Text)
-        timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-        
-        # LangChain specific fields
-        additional_kwargs = db.Column(db.JSON, default=lambda: {})
-        model = db.Column(db.String(255))
-        response_time_ms = db.Column(db.Integer)
-        tool_calls_made = db.Column(db.Integer, default=0)
-        response_md = db.Column(db.JSON, default=lambda: {})
-        
-        # Tool usage fields
-        tool_call_id = db.Column(db.String(255))
+
+        model_name = db.Column(db.String(255))
+        content_filter_results = db.Column(db.JSON)
+        total_tokens = db.Column(db.Integer)
+        completion_tokens = db.Column(db.Integer)
+        prompt_tokens = db.Column(db.Integer)
+
+        tool_id = db.Column(db.String(255))
         tool_name = db.Column(db.String(255))
         tool_input = db.Column(db.JSON)
-        tool_output = db.Column(db.JSON)
-        tool_error = db.Column(db.Text)
-        tool_execution_time_ms = db.Column(db.Integer)
+        tool_output = db.Column(db.JSON) 
+        tool_call_id = db.Column(db.String(255))
+    
+        finish_reason = db.Column(db.String(255))
+        response_time_ms = db.Column(db.Integer)
+        trace_end = db.Column(db.DateTime, default=datetime.now())
 
         def to_dict(self):
             return to_dict_helper(self)
-
-
-
 
     # --- Chat History Management Class ---
     class ChatHistoryManager:
@@ -142,75 +131,134 @@ def init_chat_db(database):
                 print("-----------------> New chat session created: ", session.session_id)
                 db.session.add(session)
                 db.session.commit()
+        def add_trace_messages(self, serialized_messages: str, 
+                               trace_duration: int):
+            """Add all messages in a trace to the chat history"""
+            trace_id = str(uuid.uuid4())
+            message_list= _to_json_primitive(serialized_messages)
+            print("New trace_id generated. Adding all messages for trace_id:", trace_id)
+            for msg in message_list:
+                if msg['type'] == 'human':
+                    print("Adding human message to chat history")
+                    _ = self.add_human_message(msg, trace_id)
+                if msg['type'] == 'ai':
+                    print("Adding AI message to chat history")
+                    if msg["response_metadata"].get("finish_reason") != "tool_calls":
+                        _ = self.add_ai_message(msg, trace_id, trace_duration)
+                    elif msg["response_metadata"].get("finish_reason") == "tool_calls":
+                        tool_call_dict = self.add_tool_call_message(msg, trace_id)
+                if msg['type'] == "tool":
+                    print("Adding tool message to chat history")
+                    tool_result_dict = self.add_tool_result_message(msg, trace_id)
+                    tool_call_dict.update(tool_result_dict)
+                    _ = self.log_tool_usage(tool_call_dict, trace_id)
+            res = "All trace messages added..."
+            return res
+        def add_human_message(self, message: dict, trace_id: str):
+            """Add the human message to chat history"""
+            entry_message = ChatHistory(
+                session_id=self.session_id,
+                user_id=self.user_id,
+                trace_id=trace_id,
+                message_id = message["id"],
+                message_type="human",
+                content=message['content'],
+            )
+            db.session.add(entry_message)
+            db.session.commit()
+            print("Human message added to chat history:", message["id"])
+            return entry_message
 
-        
-        def add_message(self, trace_id: str, message_type: str, content: str, agent_id:str, **kwargs):
-            """Add a message to the chat history"""
-            message = ChatHistory(
+        def add_ai_message(self, message: dict, trace_id: str, trace_duration: int):
+            """Add the AI agent message to chat history"""
+            agent_id = db.session.query(AgentDefinition.agent_id).filter_by(name=message["name"]).scalar()
+            entry_message = ChatHistory(
                 session_id=self.session_id,
                 user_id=self.user_id,
                 agent_id = agent_id,
-                message_type=message_type,
-                content=content,
+                message_id = message["id"],
                 trace_id=trace_id,
-                **kwargs
+                message_type="ai",
+                content=message["content"],
+                total_tokens=message["response_metadata"].get("token_usage")['total_tokens'],
+                completion_tokens=message["response_metadata"].get("token_usage")['completion_tokens'],
+                prompt_tokens=message["response_metadata"].get("token_usage")['prompt_tokens'],
+                model_name=message["response_metadata"].get('model_name'),
+                content_filter_results=message["response_metadata"].get("prompt_filter_results")[0].get("content_filter_results"),
+                finish_reason=message["response_metadata"].get("finish_reason"),
+                response_time_ms=trace_duration,
             )
-            db.session.add(message)
+            db.session.add(entry_message)
             db.session.commit()
-            return message
+            print("AI message added to chat history:", message["id"])
+            return entry_message
 
-        def add_tool_call(self, agent_id: str, trace_id: str, tool_call_id: str, tool_name: str, tool_input: dict, content: str = None):
+        def add_tool_call_message(self, message: dict, trace_id: str):
             """Log a tool call"""
-            content = content or f"Calling tool: {tool_name}"
-            print(f"Adding tool call: {tool_name} with ID: {tool_call_id}")
-            return self.add_message(
+            agent_id = db.session.query(AgentDefinition.agent_id).filter_by(name=message["name"]).scalar()
+            tool_name = message["additional_kwargs"].get('tool_calls')[0].get('function')["name"]
+            tool_id = db.session.query(ToolDefinition.tool_id).filter_by(name=tool_name).scalar()
+
+            entry_message = ChatHistory(
+                session_id=self.session_id,
+                user_id=self.user_id,
                 agent_id=agent_id,
                 trace_id=trace_id,
+                message_id = message["id"],
                 message_type='tool_call',
-                tool_call_id=tool_call_id,
+                tool_id = tool_id,
+                tool_call_id=message["additional_kwargs"].get('tool_calls')[0].get('id'),
                 tool_name=tool_name,
-                tool_input=tool_input,
-                content=content
+                total_tokens=message["response_metadata"].get("token_usage")['total_tokens'],
+                completion_tokens=message["response_metadata"].get("token_usage")['completion_tokens'],
+                prompt_tokens=message["response_metadata"].get("token_usage")['prompt_tokens'],
+                tool_input=message["additional_kwargs"].get('tool_calls')[0].get('function')["arguments"],
+                model_name=message["response_metadata"].get('model_name'),
+                content_filter_results=message["response_metadata"].get("prompt_filter_results")[0].get("content_filter_results"),
+                finish_reason=message["response_metadata"].get("finish_reason"),
             )
+            db.session.add(entry_message)
+            db.session.commit()
+            print("Tool call message added to chat history:", message["id"])
+            return {"tool_call_id": message["additional_kwargs"].get('tool_calls')[0].get('id'),
+                    "tool_id": tool_id, "tool_name": tool_name,
+                    "tool_input": message["additional_kwargs"].get('tool_calls')[0].get('function')["arguments"],
+                    "total_tokens": message["response_metadata"].get("token_usage")['total_tokens']}
 
-        def add_tool_result(self, trace_id: str, tool_call_id: str, tool_name: str, tool_output: dict, 
-                           content: str = None, error: str = None, execution_time_ms: int = None):
+        def add_tool_result_message(self, message: dict, trace_id: str):
             """Log a tool result"""
-            content = content or f"Tool {tool_name} result"
-            return self.add_message(
-                trace_id=trace_id,
-                message_type='tool_result',
-                content=content,
-                tool_call_id=tool_call_id,
-                tool_name=tool_name,
-                tool_output=tool_output,
-                tool_error=error,
-                tool_execution_time_ms=execution_time_ms
-            )
-
-        def log_tool_usage(self, trace_id: str, tool_call_id: str, tool_name: str, tool_input: dict, 
-                        tool_output: dict = None, error: str = None, execution_time_ms: int = None, 
-                        tokens_used: int = None, message_id: str = None):
-            """Log detailed tool usage metrics"""
-            status = 'error' if error else 'success'
-            
-            # Get the tool_id from the tool name
+            tool_name = message["name"]
             tool_id = db.session.query(ToolDefinition.tool_id).filter_by(name=tool_name).scalar()
+            entry_message = ChatHistory(
+                session_id=self.session_id,
+                user_id=self.user_id,
+                message_id=message["id"],
+                tool_id=tool_id,
+                tool_call_id=message["tool_call_id"],
+                trace_id=trace_id,
+                tool_name=message["name"],
+                message_type='tool_result',
+                content=message["content"],
+                tool_output=message["content"],
+            )
+            db.session.add(entry_message)
+            db.session.commit()
+            print("Tool result message added to chat history:", message["id"])
+            return {"tool_output": message["content"], "status": message["status"]}
+
+        def log_tool_usage(self, tool_info: dict, trace_id: str):
+            """Log detailed tool usage metrics"""
             
             tool_usage = ToolUsage(
                 session_id=self.session_id,
                 trace_id=trace_id,
-                message_id=message_id,
-                tool_call_id=tool_call_id,
-                tool_id=tool_id,  # Add the tool_id here
-                tool_name=tool_name,
-                tool_input=tool_input,
-                tool_output=tool_output,
-                tool_error=error,
-                execution_time_ms=execution_time_ms,
-                status=status,
-                completed_at=datetime.utcnow(),
-                tokens_used=tokens_used
+                tool_call_id=tool_info.get("tool_call_id"),
+                tool_id=tool_info.get("tool_id"),
+                tool_name=tool_info.get("tool_name"),
+                tool_input=tool_info.get("tool_input"),
+                tool_output=tool_info.get("tool_output"),
+                status=tool_info.get("status"),
+                tokens_used=tool_info.get("total_tokens")
             )
             db.session.add(tool_usage)
             db.session.commit()
@@ -220,7 +268,7 @@ def init_chat_db(database):
             """Retrieve conversation history for this session"""
             messages = ChatHistory.query.filter_by(
                 session_id=self.session_id
-            ).order_by(ChatHistory.timestamp.desc()).limit(limit).all()
+            ).order_by(ChatHistory.trace_end.desc()).limit(limit).all()
             
             return [msg.to_dict() for msg in reversed(messages)]
 
@@ -250,33 +298,7 @@ def handle_chat_sessions(request):
         db.session.commit()
         return jsonify(session.to_dict()), 201
 
-def get_session_tool_usage(session_id):
-    """Get tool usage for a specific session"""
-    usage = ToolUsage.query.filter_by(session_id=session_id).order_by(ToolUsage.started_at.desc()).all()
-    return jsonify([u.to_dict() for u in usage])
 
-def export_chat_session(session_id):
-    """Export a complete chat session with tool usage"""
-    chat_manager = ChatHistoryManager(session_id)
-    history = chat_manager.get_conversation_history(limit=1000)
-    
-    # Get tool usage for this session
-    tool_usage = ToolUsage.query.filter_by(session_id=session_id).all()
-    
-    export_data = {
-        "session_id": session_id,
-        "exported_at": datetime.utcnow().isoformat(),
-        "chat_history": history,
-        "tool_usage": [usage.to_dict() for usage in tool_usage],
-        "summary": {
-            "total_messages": len(history),
-            "total_tool_calls": len(tool_usage),
-            "unique_tools_used": len(set(usage.tool_name for usage in tool_usage)),
-            "average_tool_execution_time": np.mean([usage.execution_time_ms for usage in tool_usage if usage.execution_time_ms]) if tool_usage else 0
-        }
-    }
-    
-    return jsonify(export_data)
 
 def clear_chat_history():
     """Clear all chat history data - USE WITH CAUTION"""

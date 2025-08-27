@@ -11,15 +11,17 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-from openai import AzureOpenAI
-from langchain_openai import AzureOpenAIEmbeddings
+# from openai import AzureOpenAI
+from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_sqlserver import SQLServer_VectorStore
 # from langchain_community.callbacks.manager import get_openai_callback
 
 from shared.db_connect import create_azuresql_connection
 import requests  # For calling analytics service
-
+from langgraph.prebuilt import create_react_agent
+from shared.utils import _serialize_messages
+# from langchain_azure_ai import az
 # Load Environment variables and initialize app
 import os
 load_dotenv(override=True)
@@ -41,11 +43,11 @@ if not all([AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT, AZ
     ai_client = None
     embeddings_client = None
 else:
-    ai_client = AzureOpenAI(
-        azure_deployment=AZURE_OPENAI_DEPLOYMENT,
+    ai_client = AzureChatOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
         api_version="2024-10-21",
-        api_key=AZURE_OPENAI_KEY
+        api_key=AZURE_OPENAI_KEY,
+        azure_deployment="gpt-4.1"
     )
     embeddings_client = AzureOpenAIEmbeddings(
         azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
@@ -155,7 +157,7 @@ def call_analytics_service(endpoint, method='POST', data=None):
         return None
 
 # AI Chatbot Tool Definitions (same as before)
-def get_user_accounts(user_id='user_1'):
+def get_user_accounts(user_id: str = 'user_1') -> str:
     """Retrieves all accounts for a given user."""
     try:
         accounts = Account.query.filter_by(user_id=user_id).all()
@@ -168,7 +170,7 @@ def get_user_accounts(user_id='user_1'):
     except Exception as e:
         return f"Error retrieving accounts: {str(e)}"
 
-def get_transactions_summary(user_id='user_1', time_period='this month', account_name=None):
+def get_transactions_summary(user_id: str = 'user_1', time_period: str = 'this month', account_name: str = None) -> str:
     """Provides a summary of the user's spending. Can be filtered by a time period and a specific account."""
     try:
         query = db.session.query(Transaction.category, db.func.sum(Transaction.amount).label('total_spent')).filter(
@@ -211,7 +213,7 @@ def get_transactions_summary(user_id='user_1', time_period='this month', account
         print(f"ERROR in get_transactions_summary: {e}")
         return json.dumps({"status": "error", "message": f"An error occurred while generating the transaction summary."})
 
-def search_support_documents(user_question: str):
+def search_support_documents(user_question: str) -> str:
     """Searches the knowledge base for answers to customer support questions using vector search."""
     if not vector_store:
         return "The vector store is not configured."
@@ -229,7 +231,7 @@ def search_support_documents(user_question: str):
         print(f"ERROR in search_support_documents: {e}")
         return "An error occurred while searching for support documents."
 
-def create_new_account(user_id='user_1', account_type='checking', name=None, balance=0.0):
+def create_new_account(user_id: str = 'user_1', account_type: str = 'checking', name: str = None, balance: float = 0.0) -> str:
     """Creates a new bank account for the user."""
     if not name:
         return json.dumps({"status": "error", "message": "An account name is required."})
@@ -245,7 +247,7 @@ def create_new_account(user_id='user_1', account_type='checking', name=None, bal
         db.session.rollback()
         return f"Error creating account: {str(e)}"
 
-def transfer_money(user_id='user_1', from_account_name=None, to_account_name=None, amount=0.0, to_external_details=None):
+def transfer_money(user_id: str = 'user_1', from_account_name: str = None, to_account_name: str = None, amount: float = 0.0, to_external_details: dict = None) -> str:
     """Transfers money between user's accounts or to an external account."""
     if not from_account_name or (not to_account_name and not to_external_details) or amount <= 0:
         return json.dumps({"status": "error", "message": "Missing required transfer details."})
@@ -309,7 +311,7 @@ def handle_transactions():
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
-    agent_id = "agent_bd50a4ca-2bec-46c6-9c5d-97b7fb060bbc" # hardcoding for now, FIX later
+
     if not ai_client:
         return jsonify({"error": "Azure OpenAI client is not configured."}), 503
 
@@ -317,218 +319,47 @@ def chatbot():
     messages = data.get("messages", [])
     session_id = data.get("session_id")
     user_id = data.get("user_id", "user_1")
+    
+    print(messages)
 
-    #-------- Log user message to analytics service --------
+    # Extract user message and define tools
+    user_message = messages[-1].get("content", "")
+    tools = [get_user_accounts, get_transactions_summary,
+            search_support_documents, create_new_account,
+            transfer_money]
 
-    if messages and messages[-1].get("role") == "user":
-        trace_id = f"traceID_{uuid.uuid4()}"
-        analytics_data = {
-            "user_session_id": session_id,
-            "agent_id": agent_id,
-            "user_id": user_id,
-            "trace_id": trace_id,
-            "message_type": "human",
-            "content": messages[-1].get("content")
-        }
-        call_analytics_service("chat/log-message", data=analytics_data)
+    # Initialize banking agent
+    banking_agent = create_react_agent(
+        model = ai_client,
+        tools = tools,
+        prompt = """
+        - You are a customer support agent.
+        - You can use the provided tools to answer user questions and perform tasks.
+        - If you were unable to find an answer, inform the user.
+        - Do not use your general knowledge to answer questions.""",
+        name = "banking_agent_v1"
+    )
     #--------------------------------------------------------
+    trace_start_time = time.time()
+    response = banking_agent.invoke( {"messages": [{"role": "user", "content": user_message}]})
+    end_time = time.time()
+    trace_duration = int((end_time - trace_start_time) * 1000)  # Convert to milliseconds
+    print("################### TRACE STARTS ######################")
+    final_messages = response['messages']
+    print("################### TRACE ENDS ######################")
 
-    #-------- Tool Definitions for Banking agent ------------
-
-    tools = [
-        {"type": "function", "function": {
-            "name": "get_user_accounts",
-            "description": "Get a list of all bank accounts belonging to the current user.",
-            "parameters": {"type": "object", "properties": {}}
-        }},
-        {"type": "function", "function": {
-            "name": "get_transactions_summary",
-            "description": "Get a summary of spending for the user, filterable by account and time period.",
-             "parameters": {
-                "type": "object",
-                "properties": {
-                    "time_period": {"type": "string", "description": "e.g., 'this month', 'last 6 months'."},
-                    "account_name": {"type": "string", "description": "e.g., 'Primary Checking'."}
-                },
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "search_support_documents",
-            "description": "Use this for customer support questions, such as 'how to do X', 'what are the fees for Y', or policy questions.",
-             "parameters": {
-                "type": "object",
-                "properties": {"user_question": {"type": "string", "description": "The user's full question."}},
-                "required": ["user_question"]
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "create_new_account",
-            "description": "Creates a new bank account for the user.",
-            "parameters": {"type": "object", "properties": {
-                "account_type": {"type": "string", "enum": ["checking", "savings", "credit"]},
-                "name": {"type": "string", "description": "The desired name for the new account."},
-                "balance": {"type": "number", "description": "The initial balance."}}, "required": ["account_type", "name"]
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "transfer_money",
-            "description": "Transfer funds between accounts or to an external account.",
-            "parameters": {"type": "object", "properties": {
-                "from_account_name": {"type": "string"}, "to_account_name": {"type": "string"}, "amount": {"type": "number"},
-                "to_external_details": {"type": "object", "properties": {"name": {"type": "string"},"accountNumber": {"type": "string"},"routingNumber": {"type": "string"}}}
-                }, "required": ["from_account_name", "amount"]
-            }
-        }}
-    ]
-    #--------------------------------------------------------
-    start_time = time.time()
-    response = ai_client.chat.completions.create(model=AZURE_OPENAI_DEPLOYMENT, messages=messages, tools=tools, tool_choice="auto")
-
-    # tools to use ....
-    response_message = response.choices[0].message
-    first_response_time = int((time.time() - start_time) * 1000)
-    tool_calls = response_message.tool_calls
-
-    if tool_calls:
-        print("using tools ...")
-        messages.append(response_message)
-        available_functions = {
-            "get_user_accounts": get_user_accounts,
-            "get_transactions_summary": get_transactions_summary,
-            "search_support_documents": search_support_documents,
-            "create_new_account": create_new_account,
-            "transfer_money": transfer_money,
-        }
-
-        for tool_call in tool_calls:
-            function_name = tool_call.function.name
-            function_args = json.loads(tool_call.function.arguments)
-            
-            # Execute the tool
-            tool_start_time = time.time()
-            function_to_call = available_functions[function_name]
-            content = response_message.content
-            #-------- Log tool call details to analytics service --------
-
-            analytics_data = {
-                "user_session_id": session_id,
-                "user_id": user_id,
-                "agent_id": agent_id,
-                "content": content,
-                "trace_id": trace_id,
-                "tool_call_id": tool_call.id,
-                "tool_name": function_name,
-                "tool_input": function_args
-            }
-            call_analytics_service("chat/log-tool-call", data=analytics_data)
-            #--------------------------------------------------------
-            
-            
-            try:
-                function_response = function_to_call(**function_args)
-                tool_execution_time = int((time.time() - tool_start_time) * 1000)
-                tool_error = None
-                tool_output = {"result": function_response}
-                
-            except Exception as e:
-                tool_execution_time = int((time.time() - tool_start_time) * 1000)
-                tool_error = str(e)
-                function_response = f"Error executing {function_name}: {str(e)}"
-                tool_output = {"error": str(e)}
-                
-            #------------------------------------------------------------
-            #-------- Log tool call results to analytics service --------
-            analytics_data = {
-                "user_id": user_id,
-                "user_session_id": session_id,
-                "trace_id": trace_id,
-                "agent_id": agent_id,
-                "tool_call_id": tool_call.id,
-                "tool_name": function_name,
-                "tool_output": tool_output,
-                "content": function_response[:500] + "..." if len(str(function_response)) > 500 else str(function_response),
-                "error": tool_error,
-                "execution_time_ms": tool_execution_time
-            }
-            call_analytics_service("chat/log-tool-result", data=analytics_data)
-            #------------------------------------------------------------  
-            #-------- Log tool call results to analytics service --------
-            analytics_data = {
-                "user_id": user_id,
-                "user_session_id": session_id,
-                'trace_id':trace_id,
-                'tool_call_id':tool_call.id,
-                'tool_name':function_name,
-                'tool_input':function_args,
-                'tool_output':tool_output,
-                'error':tool_error,
-                'execution_time_ms':tool_execution_time,
-                'tokens_used':response.usage.total_tokens
-            }
-            call_analytics_service("chat/log_tool_usage_details", data=analytics_data) 
-            #------------------------------------------------------------ 
-
-            # Prepare content for final message format
-            tool_message_content = function_response
-            if function_name == 'search_support_documents':
-                rag_instruction = "You are a customer support agent. Answer the user's last question based *only* on the following document context. If the context says no documents were found, inform the user you could not find an answer. Do not use your general knowledge. CONTEXT: "
-                tool_message_content = rag_instruction + function_response
-
-            messages.append({
-                "tool_call_id": tool_call.id,
-                "role": "tool",
-                "name": function_name,
-                "content": tool_message_content,
-            })
-        
-        # Second API call to get a natural language response based on the tool's output
-        
-        second_response = ai_client.chat.completions.create(model=AZURE_OPENAI_DEPLOYMENT, messages=messages)
-        response_time_with_tool = int((time.time() - start_time) * 1000)
-        
-        print("second response trace:")
-        for choice in second_response.choices:
-            print(f"Choice: {choice}")
-            print("-----------------------------------------")
-        final_message = second_response.choices[0].message.content
-        #-------- Log final results to analytics service --------
-        analytics_data = {
-            "user_session_id": session_id,
-            "agent_id": agent_id,
-            "user_id": user_id,
-            "trace_id": trace_id,
-            "message_type": "ai",
-            "content": final_message,
-            "model": AZURE_OPENAI_DEPLOYMENT,
-            "response_time_ms": response_time_with_tool,
-            "tool_calls_made": len(tool_calls)
-        }
-        call_analytics_service("chat/log-message", data=analytics_data)
-
-        
-        return jsonify({
-            "response": final_message,
-            "session_id": session_id,
-            "tools_used": [tc.function.name for tc in tool_calls]
-        })
-
-    # If no tool is called, just return the model's direct response
-    #-------- Log final results to analytics service (no tools used) --------
     analytics_data = {
-        "user_session_id": session_id,
-        "agent_id": agent_id,
+        "session_id": session_id,
         "user_id": user_id,
-        "trace_id": trace_id,
-        "message_type": "ai",
-        "content": response_message.content,
-        "model": AZURE_OPENAI_DEPLOYMENT,
-        "response_time_ms": first_response_time,
-        "tool_calls_made": 0
+        "messages": _serialize_messages(final_messages),
+        "trace_duration": trace_duration,
     }
-    call_analytics_service("chat/log-message", data=analytics_data)
-    #------------------------------------------------------------ 
+
+        
+        # calling analytics service to capture this trace
+    call_analytics_service("chat/log-trace", data=analytics_data)
     return jsonify({
-        "response": response_message.content,
+        "response": final_messages[-1].content,
         "session_id": session_id,
         "tools_used": []
     })

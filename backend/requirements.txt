@@ -30,6 +30,7 @@ jiter==0.10.0
 jsonpatch==1.33
 jsonpointer==3.0.0
 langchain
+langgraph
 langchain-community
 langchain-core
 langchain-openai==0.3.28

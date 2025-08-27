@@ -32,7 +32,7 @@ db = SQLAlchemy(app)
 init_chat_db(db)
 from chat_data_model import (
     ToolDefinition, ChatHistoryManager,
-    handle_chat_sessions, get_session_tool_usage, export_chat_session, 
+    handle_chat_sessions, 
     clear_chat_history, clear_session_data, initialize_tool_definitions, 
     initialize_agent_definitions
 )
@@ -41,14 +41,6 @@ from chat_data_model import (
 @app.route('/api/chat/sessions', methods=['GET', 'POST'])
 def chat_sessions_route():
     return handle_chat_sessions(request)
-
-@app.route('/api/tools/usage/<session_id>', methods=['GET'])
-def tool_usage_route(session_id):
-    return get_session_tool_usage(session_id)
-
-@app.route('/api/chat/export/<session_id>', methods=['GET'])
-def export_chat_route(session_id):
-    return export_chat_session(session_id)
 
 @app.route('/api/admin/clear-chat-history', methods=['DELETE'])
 def clear_chat_route():
@@ -78,94 +70,28 @@ def handle_tool_definitions():
         return jsonify(tool_def.to_dict()), 201
 
 # Endpoints for logging messages from banking service
-@app.route('/api/chat/log-message', methods=['POST'])
-def log_message():
+@app.route('/api/chat/log-trace', methods=['POST'])
+def log_trace():
+    import traceback
+
     try:
         data = request.json
         chat_manager = ChatHistoryManager(
-            session_id=data.get('user_session_id'),
+            session_id=data.get('session_id'),
             user_id=data.get('user_id', 'user_1')
         )
-        
-        chat_manager.add_message(
-            trace_id=data.get('trace_id'),
-            agent_id=data.get('agent_id'),
-            message_type=data.get('message_type'),
-            content=data.get('content'),
-            **{k: v for k, v in data.items() if k not in ['user_session_id', 'agent_id', 'user_id', 'trace_id', 'message_type', 'content']}
-        )
-        
-        return jsonify({"status": "success"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-@app.route('/api/chat/log-tool-call', methods=['POST'])
-def log_tool_call():
-    try:
-        data = request.json
-        chat_manager = ChatHistoryManager(
-            session_id=data.get('user_session_id'),
-            user_id=data.get('user_id', 'user_1')
-        )
-        chat_manager.add_tool_call(
-            trace_id=data.get('trace_id'),
-            agent_id=data.get('agent_id'),
-            content= data.get('content'),
-            tool_call_id=data.get('tool_call_id'),
-            tool_name=data.get('tool_name'),
-            tool_input=data.get('tool_input')
+        # call into the chat history manager (note: method expects 'message' kw)
+        chat_manager.add_trace_messages(
+            serialized_messages=data.get('messages'),
+            trace_duration=data.get('trace_duration')
         )
 
         return jsonify({"status": "success"}), 201
+
     except Exception as e:
-        print("*******************",str(e))
-        return jsonify({"error": str(e)}), 500
-    
-@app.route('/api/chat/log-tool-result', methods=['POST'])
-def log_tool_result():
-    try:
-        data = request.json
-        chat_manager = ChatHistoryManager(
-            session_id=data.get('user_session_id'),
-            user_id=data.get('user_id', 'user_1')
-        )
-        content = data.get('content') or f"Tool {data.get('tool_name')} result"
-        chat_manager.add_message(
-            trace_id= data.get('trace_id'),
-            message_type='tool_result',
-            agent_id= data.get('agent_id'),
-            content=content,
-            tool_call_id=data.get('tool_call_id'),
-            tool_name=data.get('tool_name'),
-            tool_output=data.get('tool_output'),
-            tool_error=data.get('tool_error'),
-            tool_execution_time_ms=data.get('execution_time_ms')
-        )
-        return jsonify({"status": "success"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
-        
-@app.route('/api/chat/log_tool_usage_details', methods=['POST'])
-def log_tool_usage_details():
-    try:
-        data = request.json
-        chat_manager = ChatHistoryManager(
-            session_id=data.get('user_session_id'),
-            user_id=data.get('user_id', 'user_1')
-        )
-        chat_manager.log_tool_usage(
-            trace_id=data.get('trace_id'),
-            tool_call_id=data.get('tool_call_id'),
-            tool_name=data.get('tool_name'),
-            tool_input=data.get('tool_input'),
-            tool_output=data.get('tool_output'),
-            error=data.get('error'),
-            execution_time_ms=data.get('execution_time_ms'),
-            tokens_used=data.get('tokens_used')
-        )
-        return jsonify({"status": "success"}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        traceback.print_exc()
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
     
 # Health check endpoint
 @app.route('/api/health', methods=['GET'])
