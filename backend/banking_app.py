@@ -220,7 +220,7 @@ def search_support_documents(user_question: str) -> str:
     try:
         results = vector_store.similarity_search_with_score(user_question, k=3)
         relevant_docs = [doc.page_content for doc, score in results if score < 0.5]
-        
+        print("-------------> ", relevant_docs)
         if not relevant_docs:
             return "No relevant support documents found to answer this question."
 
@@ -344,9 +344,8 @@ def chatbot():
     response = banking_agent.invoke( {"messages": [{"role": "user", "content": user_message}]})
     end_time = time.time()
     trace_duration = int((end_time - trace_start_time) * 1000)  # Convert to milliseconds
-    print("################### TRACE STARTS ######################")
+    print("################### NEW TRACE STARTS ######################")
     final_messages = response['messages']
-    print("################### TRACE ENDS ######################")
 
     analytics_data = {
         "session_id": session_id,
@@ -374,3 +373,5 @@ if __name__ == '__main__':
 
     print("Starting Banking Service on port 5001...")
     app.run(debug=False, port=5001, use_reloader=False)
+
+    # tool output status ERROR! change to capture in logging

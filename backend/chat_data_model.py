@@ -3,7 +3,6 @@ from datetime import datetime
 import json
 from flask import jsonify
 from shared.utils import _to_json_primitive
-
 # Global variables that will be set by the main app
 db = None
 ChatHistory = None
@@ -238,7 +237,7 @@ def init_chat_db(database):
                 trace_id=trace_id,
                 tool_name=message["name"],
                 message_type='tool_result',
-                content=message["content"],
+                content="",
                 tool_output=message["content"],
             )
             db.session.add(entry_message)
@@ -248,18 +247,30 @@ def init_chat_db(database):
 
         def log_tool_usage(self, tool_info: dict, trace_id: str):
             """Log detailed tool usage metrics"""
-            
-            tool_usage = ToolUsage(
-                session_id=self.session_id,
-                trace_id=trace_id,
-                tool_call_id=tool_info.get("tool_call_id"),
-                tool_id=tool_info.get("tool_id"),
-                tool_name=tool_info.get("tool_name"),
-                tool_input=tool_info.get("tool_input"),
-                tool_output=tool_info.get("tool_output"),
-                status=tool_info.get("status"),
-                tokens_used=tool_info.get("total_tokens")
-            )
+            existing = ToolUsage.query.filter_by(tool_call_id=tool_info.get("tool_call_id")).first()
+            if existing:
+                existing.tool_output = tool_info.get("tool_output")
+                existing.trace_id = trace_id
+                existing.session_id = self.session_id
+                existing.tool_id = tool_info.get("tool_id") 
+                existing.tool_name = tool_info.get("tool_name") 
+                existing.tool_input = tool_info.get("tool_input") 
+                existing.tool_output = tool_info.get("tool_output") 
+                existing.status = tool_info.get("status") 
+                existing.tokens_used = tool_info.get("total_tokens")
+                db.session.commit()
+            else:
+                tool_usage = ToolUsage(
+                    session_id=self.session_id,
+                    trace_id=trace_id,
+                    tool_call_id=tool_info.get("tool_call_id"),
+                    tool_id=tool_info.get("tool_id"),
+                    tool_name=tool_info.get("tool_name"),
+                    tool_input=tool_info.get("tool_input"),
+                    tool_output=tool_info.get("tool_output"),
+                    status=tool_info.get("status"),
+                    tokens_used=tool_info.get("total_tokens")
+                )
             db.session.add(tool_usage)
             db.session.commit()
             return tool_usage
