@@ -67,7 +67,6 @@ CREATE TABLE chat_history (
 CREATE TABLE tool_usage (
     tool_call_id NVARCHAR(255) PRIMARY KEY,  -- Changed from 'id' to 'tool_call_id' to match Python model
     session_id NVARCHAR(255) NOT NULL,
-    message_id NVARCHAR(255),            -- Links to chat_history.message_id
     trace_id NVARCHAR(255),              -- Add trace_id field
     tool_id NVARCHAR(255) NOT NULL,      -- Add tool_id field (foreign key to tool_definitions)
     tool_name NVARCHAR(255) NOT NULL,
@@ -79,26 +78,22 @@ CREATE TABLE tool_usage (
 
 -- Foreign Key Constraints
 -- Link chat_history to chat_sessions
--- ALTER TABLE chat_history 
--- ADD CONSTRAINT FK_chat_history_session 
--- FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id);
+ALTER TABLE chat_history 
+ADD CONSTRAINT FK_chat_history_session 
+FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id);
 
--- -- Link chat_history to agent_definitions
--- ALTER TABLE chat_history 
--- ADD CONSTRAINT FK_chat_history_agent 
--- FOREIGN KEY (agent_id) REFERENCES agent_definitions(agent_id);
+-- Link chat_history to agent_definitions
+ALTER TABLE chat_history 
+ADD CONSTRAINT FK_chat_history_agent 
+FOREIGN KEY (agent_id) REFERENCES agent_definitions(agent_id);
 
--- -- Link tool_usage to chat_sessions
--- ALTER TABLE tool_usage 
--- ADD CONSTRAINT FK_tool_usage_session 
--- FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id);
 
--- -- Link tool_usage to chat_history (optional relationship)
--- ALTER TABLE tool_usage 
--- ADD CONSTRAINT FK_tool_usage_message 
--- FOREIGN KEY (message_id) REFERENCES chat_history(message_id);
+-- Link tool_usage to chat_history (optional relationship)
+ALTER TABLE chat_history 
+ADD CONSTRAINT FK_chat_history_tool_usage
+FOREIGN KEY (tool_call_id) REFERENCES tool_usage(tool_call_id);
 
--- -- Link tool_usage to tool_definitions
--- ALTER TABLE tool_usage 
--- ADD CONSTRAINT FK_tool_usage_tool_definition 
--- FOREIGN KEY (tool_id) REFERENCES tool_definitions(tool_id);
+-- Link tool_usage to tool_definitions
+ALTER TABLE tool_usage 
+ADD CONSTRAINT FK_tool_usage_tool_definition 
+FOREIGN KEY (tool_id) REFERENCES tool_definitions(tool_id);
