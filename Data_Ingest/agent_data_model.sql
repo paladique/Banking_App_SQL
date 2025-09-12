@@ -81,19 +81,3 @@ CREATE TABLE tool_usage (
 ALTER TABLE chat_history 
 ADD CONSTRAINT FK_chat_history_session 
 FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id);
-
--- Link chat_history to agent_definitions
-ALTER TABLE chat_history 
-ADD CONSTRAINT FK_chat_history_agent 
-FOREIGN KEY (agent_id) REFERENCES agent_definitions(agent_id);
-
-
--- Link tool_usage to chat_history (optional relationship)
-ALTER TABLE chat_history 
-ADD CONSTRAINT FK_chat_history_tool_usage
-FOREIGN KEY (tool_call_id) REFERENCES tool_usage(tool_call_id);
-
--- Link tool_usage to tool_definitions
-ALTER TABLE tool_usage 
-ADD CONSTRAINT FK_tool_usage_tool_definition 
-FOREIGN KEY (tool_id) REFERENCES tool_definitions(tool_id);
