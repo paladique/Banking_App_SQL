@@ -25,8 +25,12 @@ def create_azuresql_connection():
     )
     return pyodbc.connect(conn_str, attrs_before={1256: token_struct})
 
-def create_fabricsql_connection():
+def fabricsql_connection_bank_db():
+    """Create connection for fabric database."""
+    fabric_conn_str = os.getenv("FABRIC_SQL_CONNECTION_URL_BANK_DATA")
+    return pyodbc.connect(fabric_conn_str)
+
+def fabricsql_connection_agentic_db():
     """Create connection for fabric database."""
     fabric_conn_str = os.getenv("FABRIC_SQL_CONNECTION_URL")
     return pyodbc.connect(fabric_conn_str)
-
