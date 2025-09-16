@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy.pool import QueuePool
 
 from chat_data_model import init_chat_db
-from shared.db_connect import create_fabricsql_connection
+from shared.db_connect import fabricsql_connection_agentic_db
 
 load_dotenv(override=True)
 
@@ -17,7 +17,7 @@ CORS(app)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_DATABASE_URI'] = "mssql+pyodbc://"
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'creator': create_fabricsql_connection,
+    'creator': fabricsql_connection_agentic_db,
     'poolclass': QueuePool,
     'pool_size': 5,
     'max_overflow': 10,

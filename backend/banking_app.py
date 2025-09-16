@@ -11,17 +11,15 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-# from openai import AzureOpenAI
 from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_sqlserver import SQLServer_VectorStore
-# from langchain_community.callbacks.manager import get_openai_callback
 
-from shared.db_connect import create_azuresql_connection
+from shared.db_connect import fabricsql_connection_bank_db
 import requests  # For calling analytics service
 from langgraph.prebuilt import create_react_agent
 from shared.utils import _serialize_messages
-# from langchain_azure_ai import az
+
 # Load Environment variables and initialize app
 import os
 load_dotenv(override=True)
@@ -59,7 +57,7 @@ else:
 # Database configuration for Azure SQL (banking data)
 app.config['SQLALCHEMY_DATABASE_URI'] = "mssql+pyodbc://"
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'creator': create_azuresql_connection,
+    'creator': fabricsql_connection_bank_db,
     'poolclass': QueuePool,
     'pool_size': 5,
     'max_overflow': 10,
@@ -75,17 +73,15 @@ db = SQLAlchemy(app)
 server = os.getenv('DB_SERVER')
 database = os.getenv('DB_DATABASE')
 driver = os.getenv('DB_DRIVER', 'ODBC Driver 18 for SQL Server')
-connection_string_vector = (
-    f"DRIVER={{{driver}}};"
-    f"SERVER={server};"
-    f"DATABASE={database};"
-    "Encrypt=yes;"
-    "TrustServerCertificate=no;"
-)
+
+connection_string = os.getenv('FABRIC_SQL_CONNECTION_URL_BANK_DATA')
+
+connection_url = f"mssql+pyodbc:///?odbc_connect={connection_string}"
+
 vector_store = None
 if embeddings_client:
     vector_store = SQLServer_VectorStore(
-        connection_string=connection_string_vector,
+        connection_string=connection_url,
         table_name="DocsChunks_Embeddings",
         embedding_function=embeddings_client,
         embedding_length=1536,
