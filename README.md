@@ -29,7 +29,7 @@ Through a hands-on interface, users can see the practical difference between wri
 | -------- | ------------------------------------- |
 | Frontend | React, Vite, TypeScript, Tailwind CSS |
 | Backend  | Python, Flask, LangChain, LangGraph              |
-| Database | Azure SQL Database, Fabric SQL Database                   |
+| Database | Fabric SQL Database                   |
 | AI       | Azure OpenAI API                      |
 
 ---
@@ -40,8 +40,7 @@ Through a hands-on interface, users can see the practical difference between wri
 
 - [Node.js](https://nodejs.org/) (v18 or later)
 - [Python](https://www.python.org/) (v3.9 or later)
-- An [Azure SQL Database](https://azure.microsoft.com/en-us/services/sql-database/) account with an Entra ID application registered
-- A [Fabric SQL Database](https://learn.microsoft.com/en-us/fabric/database/sql/create) account.
+- Create two [Fabric SQL Databases](https://learn.microsoft.com/en-us/fabric/database/sql/create), one for the customer banking data, another for agentic operational data.
 - An [Azure OpenAI API Key](https://azure.microsoft.com/en-us/products/ai-services/openai-service)
 - ODBC Driver for SQL Server 18
 - Recommend VSCode as tested in VS Code only
@@ -57,11 +56,11 @@ cd Banking_App_SQL
 
 ### 🗄️ 2. Set Up the Database
 
-a. Create a database called **banking_app**.
+a. Create a database called **customer_banking_data**.The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data.
 
-b. The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data (You can execute this script against your Azure SQL Database using tools like VS Code Extension, SSMS, SQL Editor in Azure Portal or the sqlcmd command-line utility).
+b. Create another SQL database in Fabric called **banking_app** for storing the agenitc operational data. Use the **agent_data_model.sql** to initialize the required tables for the agentic data model.
 
-c. Create another SQL database in Fabric for storing the analytics data. Use the **agent_data_model.sql** to initialize the required tables for the agentic data model.
+Remember to grab the connection strings and put them in appropriate variables in .env for secure connection.
 
 
 
