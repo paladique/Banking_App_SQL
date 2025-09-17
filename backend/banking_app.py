@@ -1,22 +1,29 @@
-import os
-import urllib.parse
+# import urllib.parse
 import uuid
 from datetime import datetime
 import json
+import time
 from dateutil.relativedelta import relativedelta
-import numpy as np
+# from sqlalchemy import create_engine
+from sqlalchemy.pool import QueuePool
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-from openai import AzureOpenAI
-from langchain_openai import AzureOpenAIEmbeddings
+from langchain_openai import AzureOpenAIEmbeddings, AzureChatOpenAI
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_sqlserver import SQLServer_VectorStore
 
-# --- Environment and App Initialization ---
+from shared.db_connect import fabricsql_connection_bank_db
+import requests  # For calling analytics service
+from langgraph.prebuilt import create_react_agent
+from shared.utils import _serialize_messages
+
+# Load Environment variables and initialize app
+import os
 load_dotenv(override=True)
+
 app = Flask(__name__)
 CORS(app)
 
@@ -26,64 +33,61 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT")
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
 
+# Analytics service URL
+ANALYTICS_SERVICE_URL = "http://127.0.0.1:5002"
 
 if not all([AZURE_OPENAI_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT]):
     print("⚠️  Warning: One or more Azure OpenAI environment variables are not set.")
     ai_client = None
     embeddings_client = None
 else:
-    ai_client = AzureOpenAI(
-        api_key=AZURE_OPENAI_KEY,
+    ai_client = AzureChatOpenAI(
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        api_version="2024-02-15-preview",
+        api_version="2024-10-21",
+        api_key=AZURE_OPENAI_KEY,
+        azure_deployment="gpt-4.1"
     )
     embeddings_client = AzureOpenAIEmbeddings(
         azure_deployment=AZURE_OPENAI_EMBEDDING_DEPLOYMENT,
-        openai_api_version="2024-02-15-preview",
+        openai_api_version="2024-10-21",
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
         api_key=AZURE_OPENAI_KEY,
     )
 
-
-# --- Database Configuration ---
-server = os.getenv('DB_SERVER')
-database = os.getenv('DB_DATABASE')
-driver = os.getenv('DB_DRIVER', 'ODBC Driver 18 for SQL Server')
-client_id = os.getenv('AZURE_CLIENT_ID')
-client_secret = os.getenv('AZURE_CLIENT_SECRET')
-
-if not all([server, database, driver, client_id, client_secret]):
-    raise ValueError("Database environment variables for Service Principal are not fully configured.")
-
-connection_string = (
-    f"DRIVER={{{driver}}};"
-    f"SERVER={server};"
-    f"DATABASE={database};"
-    f"UID={client_id};"
-    f"PWD={client_secret};"
-    "Authentication=ActiveDirectoryServicePrincipal;"
-    "Encrypt=yes;"
-    "TrustServerCertificate=no;"
-)
-sqlalchemy_url = f"mssql+pyodbc:///?odbc_connect={urllib.parse.quote_plus(connection_string)}"
-app.config['SQLALCHEMY_DATABASE_URI'] = sqlalchemy_url
+# Database configuration for Azure SQL (banking data)
+app.config['SQLALCHEMY_DATABASE_URI'] = "mssql+pyodbc://"
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'creator': fabricsql_connection_bank_db,
+    'poolclass': QueuePool,
+    'pool_size': 5,
+    'max_overflow': 10,
+    'pool_pre_ping': True,
+    'pool_recycle': 3600,
+    'pool_reset_on_return': 'rollback'
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# --- Vector Store Initialization ---
+# Vector Store Initialization
+server = os.getenv('DB_SERVER')
+database = os.getenv('DB_DATABASE')
+driver = os.getenv('DB_DRIVER', 'ODBC Driver 18 for SQL Server')
+
+connection_string = os.getenv('FABRIC_SQL_CONNECTION_URL_BANK_DATA')
+
+connection_url = f"mssql+pyodbc:///?odbc_connect={connection_string}"
+
 vector_store = None
 if embeddings_client:
     vector_store = SQLServer_VectorStore(
-        connection_string=sqlalchemy_url,
+        connection_string=connection_url,
         table_name="DocsChunks_Embeddings",
         embedding_function=embeddings_client,
-        embedding_length=1536, # Added the required embedding length
+        embedding_length=1536,
         distance_strategy=DistanceStrategy.COSINE,
     )
 
-# --- Database Models ---
-# Helper function to convert model instances to dictionaries
 def to_dict_helper(instance):
     d = {}
     for column in instance.__table__.columns:
@@ -94,6 +98,7 @@ def to_dict_helper(instance):
             d[column.name] = value
     return d
 
+# Banking Database Models
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.String(255), primary_key=True, default=lambda: f"user_{uuid.uuid4()}")
@@ -133,9 +138,22 @@ class Transaction(db.Model):
     def to_dict(self):
         return to_dict_helper(self)
 
-# --- AI Chatbot Tool Definitions ---
+# Analytics Service Integration
+def call_analytics_service(endpoint, method='POST', data=None):
+    """Helper function to call analytics service"""
+    try:
+        url = f"{ANALYTICS_SERVICE_URL}/api/{endpoint}"
+        if method == 'POST':
+            response = requests.post(url, json=data, timeout=5)
+        else:
+            response = requests.get(url, timeout=5)
+        return response.json() if response.status_code < 400 else None
+    except Exception as e:
+        print(f"Analytics service call failed: {e}")
+        return None
 
-def get_user_accounts(user_id='user_1'):
+# AI Chatbot Tool Definitions (same as before)
+def get_user_accounts(user_id: str = 'user_1') -> str:
     """Retrieves all accounts for a given user."""
     try:
         accounts = Account.query.filter_by(user_id=user_id).all()
@@ -148,7 +166,7 @@ def get_user_accounts(user_id='user_1'):
     except Exception as e:
         return f"Error retrieving accounts: {str(e)}"
 
-def get_transactions_summary(user_id='user_1', time_period='this month', account_name=None):
+def get_transactions_summary(user_id: str = 'user_1', time_period: str = 'this month', account_name: str = None) -> str:
     """Provides a summary of the user's spending. Can be filtered by a time period and a specific account."""
     try:
         query = db.session.query(Transaction.category, db.func.sum(Transaction.amount).label('total_spent')).filter(
@@ -191,21 +209,17 @@ def get_transactions_summary(user_id='user_1', time_period='this month', account
         print(f"ERROR in get_transactions_summary: {e}")
         return json.dumps({"status": "error", "message": f"An error occurred while generating the transaction summary."})
 
-def search_support_documents(user_question: str):
+def search_support_documents(user_question: str) -> str:
     """Searches the knowledge base for answers to customer support questions using vector search."""
     if not vector_store:
         return "The vector store is not configured."
     try:
-        # Use the vector store to find similar documents
         results = vector_store.similarity_search_with_score(user_question, k=3)
-        
-        # Filter results by a relevance threshold
         relevant_docs = [doc.page_content for doc, score in results if score < 0.5]
-        
+        print("-------------> ", relevant_docs)
         if not relevant_docs:
             return "No relevant support documents found to answer this question."
 
-        # Combine the content of relevant documents into a single context string
         context = "\n\n---\n\n".join(relevant_docs)
         return context
 
@@ -213,7 +227,7 @@ def search_support_documents(user_question: str):
         print(f"ERROR in search_support_documents: {e}")
         return "An error occurred while searching for support documents."
 
-def create_new_account(user_id='user_1', account_type='checking', name=None, balance=0.0):
+def create_new_account(user_id: str = 'user_1', account_type: str = 'checking', name: str = None, balance: float = 0.0) -> str:
     """Creates a new bank account for the user."""
     if not name:
         return json.dumps({"status": "error", "message": "An account name is required."})
@@ -229,7 +243,7 @@ def create_new_account(user_id='user_1', account_type='checking', name=None, bal
         db.session.rollback()
         return f"Error creating account: {str(e)}"
 
-def transfer_money(user_id='user_1', from_account_name=None, to_account_name=None, amount=0.0, to_external_details=None):
+def transfer_money(user_id: str = 'user_1', from_account_name: str = None, to_account_name: str = None, amount: float = 0.0, to_external_details: dict = None) -> str:
     """Transfers money between user's accounts or to an external account."""
     if not from_account_name or (not to_account_name and not to_external_details) or amount <= 0:
         return json.dumps({"status": "error", "message": "Missing required transfer details."})
@@ -260,8 +274,8 @@ def transfer_money(user_id='user_1', from_account_name=None, to_account_name=Non
     except Exception as e:
         db.session.rollback()
         return f"Error during transfer: {str(e)}"
-        
-# --- API Routes ---
+
+# Banking API Routes
 @app.route('/api/accounts', methods=['GET', 'POST'])
 def handle_accounts():
     user_id = 'user_1'
@@ -293,101 +307,67 @@ def handle_transactions():
 
 @app.route('/api/chatbot', methods=['POST'])
 def chatbot():
+
     if not ai_client:
         return jsonify({"error": "Azure OpenAI client is not configured."}), 503
 
     data = request.json
     messages = data.get("messages", [])
+    session_id = data.get("session_id")
+    user_id = data.get("user_id", "user_1")
+    
+    print(messages)
 
-    tools = [
-        {"type": "function", "function": {
-            "name": "get_user_accounts",
-            "description": "Get a list of all bank accounts belonging to the current user.",
-            "parameters": {"type": "object", "properties": {}}
-        }},
-        {"type": "function", "function": {
-            "name": "get_transactions_summary",
-            "description": "Get a summary of spending for the user, filterable by account and time period.",
-             "parameters": {
-                "type": "object",
-                "properties": {
-                    "time_period": {"type": "string", "description": "e.g., 'this month', 'last 6 months'."},
-                    "account_name": {"type": "string", "description": "e.g., 'Primary Checking'."}
-                },
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "search_support_documents",
-            "description": "Use this for customer support questions, such as 'how to do X', 'what are the fees for Y', or policy questions.",
-             "parameters": {
-                "type": "object",
-                "properties": {"user_question": {"type": "string", "description": "The user's full question."}},
-                "required": ["user_question"]
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "create_new_account",
-            "description": "Creates a new bank account for the user.",
-            "parameters": {"type": "object", "properties": {
-                "account_type": {"type": "string", "enum": ["checking", "savings", "credit"]},
-                "name": {"type": "string", "description": "The desired name for the new account."},
-                "balance": {"type": "number", "description": "The initial balance."}}, "required": ["account_type", "name"]
-            }
-        }},
-        {"type": "function", "function": {
-            "name": "transfer_money",
-            "description": "Transfer funds between accounts or to an external account.",
-            "parameters": {"type": "object", "properties": {
-                "from_account_name": {"type": "string"}, "to_account_name": {"type": "string"}, "amount": {"type": "number"},
-                "to_external_details": {"type": "object", "properties": {"name": {"type": "string"},"accountNumber": {"type": "string"},"routingNumber": {"type": "string"}}}
-                }, "required": ["from_account_name", "amount"]
-            }
-        }}
-    ]
+    # Extract user message and define tools
+    user_message = messages[-1].get("content", "")
+    tools = [get_user_accounts, get_transactions_summary,
+            search_support_documents, create_new_account,
+            transfer_money]
 
-    # First API call to decide if a tool should be used
-    response = ai_client.chat.completions.create(model=AZURE_OPENAI_DEPLOYMENT, messages=messages, tools=tools, tool_choice="auto")
-    response_message = response.choices[0].message
-    tool_calls = response_message.tool_calls
+    # Initialize banking agent
+    banking_agent = create_react_agent(
+        model = ai_client,
+        tools = tools,
+        prompt = """
+        - You are a customer support agent.
+        - You can use the provided tools to answer user questions and perform tasks.
+        - If you were unable to find an answer, inform the user.
+        - Do not use your general knowledge to answer questions.""",
+        name = "banking_agent_v1"
+    )
+    #--------------------------------------------------------
+    trace_start_time = time.time()
+    response = banking_agent.invoke( {"messages": [{"role": "user", "content": user_message}]})
+    end_time = time.time()
+    trace_duration = int((end_time - trace_start_time) * 1000)  # Convert to milliseconds
+    print("################### NEW TRACE STARTS ######################")
+    final_messages = response['messages']
 
-    if tool_calls:
-        messages.append(response_message)
-        available_functions = {
-            "get_user_accounts": get_user_accounts,
-            "get_transactions_summary": get_transactions_summary,
-            "search_support_documents": search_support_documents,
-            "create_new_account": create_new_account,
-            "transfer_money": transfer_money,
-        }
+    analytics_data = {
+        "session_id": session_id,
+        "user_id": user_id,
+        "messages": _serialize_messages(final_messages),
+        "trace_duration": trace_duration,
+    }
 
-        for tool_call in tool_calls:
-            function_name = tool_call.function.name
-            function_to_call = available_functions[function_name]
-            function_args = json.loads(tool_call.function.arguments)
-            function_response = function_to_call(**function_args)
-            
-            tool_message_content = function_response
-            # If the tool call was for RAG, prepend the instruction to the content.
-            if function_name == 'search_support_documents':
-                rag_instruction = "You are a customer support agent. Answer the user's last question based *only* on the following document context. If the context says no documents were found, inform the user you could not find an answer. Do not use your general knowledge. CONTEXT: "
-                tool_message_content = rag_instruction + function_response
-
-            messages.append({
-                "tool_call_id": tool_call.id,
-                "role": "tool",
-                "name": function_name,
-                "content": tool_message_content,
-            })
         
-        # Second API call to get a natural language response based on the tool's output
-        second_response = ai_client.chat.completions.create(model=AZURE_OPENAI_DEPLOYMENT, messages=messages)
-        final_message = second_response.choices[0].message.content
-        return jsonify({"response": final_message})
-
-    # If no tool is called, just return the model's direct response
-    return jsonify({"response": response_message.content})
+        # calling analytics service to capture this trace
+    call_analytics_service("chat/log-trace", data=analytics_data)
+    return jsonify({
+        "response": final_messages[-1].content,
+        "session_id": session_id,
+        "tools_used": []
+    })
 
 if __name__ == '__main__':
+    print("[Banking Service] Connecting to database...")
+    print("You may be prompted for credentials...")
+    
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5001)
+        print("[Banking Service] Database initialized")
+
+    print("Starting Banking Service on port 5001...")
+    app.run(debug=False, port=5001, use_reloader=False)
+
+    # tool output status ERROR! change to capture in logging

@@ -1,0 +1,40 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+env/
+backend/backend/
+
+# Node modules
+node_modules/
+
+# Build directories
+build/
+dist/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files (you might want to keep .env.example)
+.env
+.env.local
+
+# Log files
+logs/
+*.log
+
+# Database files
+*.db
+*.sqlite3
+
+drafts/
+Data_Ingest/dataingest/
+**/.env
