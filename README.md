@@ -54,15 +54,37 @@ git clone https://github.com/mehrsa/Banking_App_SQL_with_DataModel
 cd Banking_App_SQL
 ```
 
-### 🗄️ 2. Set Up the Database
+### 🗄️ 2. Set Up the Databases
 
-a. Create a database called **customer_banking_data**.The schema.sql file in the **backend** repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data.
+1. [Register application with Entra ID by](https://learn.microsoft.com/en-us/rest/api/fabric/articles/get-started/fabric-api-quickstart#create-app-registration)
+    1. Sign in to the [Microsoft Entra admin center](https://entra.microsoft.com/) as at least a Cloud Application Administrator.
 
-b. Create another SQL database in Fabric called **banking_app** for storing the agenitc operational data. Use the **agent_data_model.sql** to initialize the required tables for the agentic data model.
+    1. Browse to Applications > App registrations.
+
+    1. Click on New registration.
+
+    1. Enter a display Name for your application, and add Public client redirect URI http://localhost
+    
+    1. Select `Register`
+
+1. In the registered application, copy the application/client id and paste it into the `client_id` field of config.json, 
+
+1. In the same `config.json` file, add your `username` in the field as `username@domain`
+
+1. Run the `retrieve_token.py` script and copy the token output, paste into `access_token` field of `config.json`
+
+1. Run dbsetup.py, it will:
+
+    1. Create a populated SQL Fabric database called **customer_banking_data**.
+    1. Create another populated SQL database in Fabric called **banking_app** for storing the agentic operational data.
 
 Remember to grab the connection strings and put them in appropriate variables in .env for secure connection.
 
+Alternatively, you may do this in Fabric:
 
+a. Create a database called customer_banking_data.The schema.sql file in the backend repository contains all the necessary T-SQL commands to create the required tables (users, accounts, transactions) and populate them with sample data.
+
+b. Create another SQL database in Fabric called banking_app for storing the agentic operational data. Use the agent_data_model.sql to initialize the required tables for the agentic data model.
 
 ### ⚙️ 3. Configure the Backend (Flask API)
 

@@ -1,0 +1,11 @@
+
+{
+    "authority": "https://login.microsoftonline.com/organizations",
+    "client_id": "",
+    "redirect_uri": "http://localhost",
+    "username": "",
+    "scope": ["https://api.fabric.microsoft.com/Workspace.ReadWrite.All https://api.fabric.microsoft.com/Item.ReadWrite.All"],
+    "api_endpoint": "https://api.fabric.microsoft.com/v1.0/myorg",
+    "access_token": ""
+
+}
